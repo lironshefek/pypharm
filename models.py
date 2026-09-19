@@ -314,3 +314,118 @@ class TransferOrder:
             f"TransferOrder(order_id={self.order_id!r}, from_location_id={self.from_location_id!r}, "
             f"to_location_id={self.to_location_id!r}, priority={self.priority!r}, status={self._status!r})"
         )
+
+class Employee:
+    VALID_ROLES = {"WAREHOUSE_WORKER", "LOGISTICS_MANAGER", "PHARMACIST", "CASHIER"}
+
+    def __init__(self, employee_id, name, role, is_active=True):
+        if not isinstance(employee_id, str) or not employee_id.strip():
+            raise ValueError(f"Employee ID must be a non-empty string, got: {employee_id!r}")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"Name must be a non-empty string, got: {name!r}")
+        if not isinstance(is_active, bool):
+            raise ValueError(f"is_active must be a boolean, got: {is_active!r}")
+
+        self.employee_id = employee_id.strip()
+        self.name = name.strip()
+        self.is_active = is_active
+        self._role = role
+
+    @property
+    def role(self) -> str:
+        return self._role
+
+    @role.setter
+    def role(self, value):
+        if not isinstance(value, str) or value.strip().upper() not in self.VALID_ROLES:
+            raise ValueError(
+                f"Invalid role: {value!r}. Must be one of {self.VALID_ROLES}"
+            )
+        self._role = value.strip().upper()
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            employee_id=data["employee_id"],
+            name=data["name"],
+            role=data["role"],
+            is_active=data.get("is_active", True),
+        )
+
+    def __str__(self) -> str:
+        status_str = "ACTIVE" if self.is_active else "INACTIVE"
+        return f"{self.name} ({self._role}) [{self.employee_id}] - {status_str}"
+
+    def __repr__(self) -> str:
+        return (
+            f"Employee(employee_id={self.employee_id!r}, name={self.name!r}, "
+            f"role={self._role!r}, is_active={self.is_active!r})"
+        )
+
+
+class OrderActionAuthorizer:
+    DEFAULT_PERMISSIONS = {
+        "UPDATE_STATUS": {"WAREHOUSE_WORKER", "LOGISTICS_MANAGER"},
+        "CANCEL_ORDER": {"LOGISTICS_MANAGER"},
+    }
+
+    def __init__(self, permissions_map=None):
+        if permissions_map is None:
+            self._permissions = {
+                action: set(roles) for action, roles in self.DEFAULT_PERMISSIONS.items()
+            }
+        else:
+            if not isinstance(permissions_map, dict):
+                raise ValueError("Permissions map must be a dictionary")
+            self._permissions = {
+                action: set(roles) for action, roles in permissions_map.items()
+            }
+
+    @property
+    def permissions(self):
+        return {action: set(roles) for action, roles in self._permissions.items()}
+
+    def is_authorized(self, employee, action_name) -> bool:
+        if not isinstance(employee, Employee):
+            raise ValueError(f"Must provide a valid Employee instance, got: {type(employee).__name__}")
+        if not employee.is_active:
+            return False
+
+        allowed_roles = self._permissions.get(action_name, set())
+        return employee.role in allowed_roles
+
+    def authorize_and_update_status(self, order, employee, new_status):
+        if not isinstance(employee, Employee):
+            raise ValueError(f"Must provide a valid Employee instance, got: {type(employee).__name__}")
+
+        if not employee.is_active:
+            raise PermissionError(
+                f"Action denied: Employee {employee.employee_id!r} is inactive."
+            )
+
+        if not self.is_authorized(employee, "UPDATE_STATUS"):
+            raise PermissionError(
+                f"Permission denied: Employee {employee.name!r} with role {employee.role!r} "
+                f"is not authorized to update order statuses."
+            )
+
+        order.status = new_status
+        return True
+
+    def validate_employees_integrity(self, orders, employees_catalog) -> tuple:
+        errors = []
+        for order in orders:
+            emp_id = getattr(order, "handled_by_employee_id", None)
+            if emp_id is not None:
+                if emp_id not in employees_catalog:
+                    errors.append(
+                        f"Integrity Error: Order {order.order_id!r} references unknown employee {emp_id!r}."
+                    )
+                elif not employees_catalog[emp_id].is_active:
+                    errors.append(
+                        f"Integrity Error: Order {order.order_id!r} references inactive employee {emp_id!r}."
+                    )
+        return len(errors) == 0, errors
+
+    def __repr__(self) -> str:
+        return f"OrderActionAuthorizer(actions={list(self._permissions.keys())!r})"
