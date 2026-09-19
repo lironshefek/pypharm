@@ -146,5 +146,5 @@ class Location:
     def __repr__(self) -> str:
         return (
             f"Location(location_id={self.location_id!r}, name={self.name!r}, "
-            f"location_type={self._location_type!r}, city={self.city!r})"
+            f"location_type={self.location_type!r}, city={self.city!r})"
         )
