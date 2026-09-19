@@ -189,4 +189,37 @@ class InventoryItem:
         return (
             f"InventoryItem(product={self.product.sku!r}, location_id={self.location_id!r}, "
             f"quantity={self._quantity!r}, min_threshold={self.min_threshold!r})"
-        )    
+        )  
+      
+class TransferOrderItem:
+    def __init__(self, sku, quantity):
+        if not isinstance(sku, str) or not sku.strip():
+            raise ValueError(f"SKU must be a non-empty string, got: {sku!r}")
+        if not isinstance(quantity, int) or quantity <= 0:
+            raise ValueError(f"Quantity must be a positive integer, got: {quantity!r}")
+
+        self.sku = sku.strip()
+        self._quantity = quantity
+
+    @property
+    def quantity(self):
+        return self._quantity
+
+    @quantity.setter
+    def quantity(self, value):
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"Quantity must be a positive integer, got: {value!r}")
+        self._quantity = value
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            sku=data["sku"],
+            quantity=data["quantity"],
+        )
+
+    def __str__(self):
+        return f"{self.sku} x {self._quantity}"
+
+    def __repr__(self):
+        return f"TransferOrderItem(sku={self.sku!r}, quantity={self._quantity!r})"
