@@ -223,3 +223,94 @@ class TransferOrderItem:
 
     def __repr__(self):
         return f"TransferOrderItem(sku={self.sku!r}, quantity={self._quantity!r})"
+
+class TransferOrder:
+    VALID_STATUSES = {"PENDING", "IN_TRANSIT", "DELIVERED", "CANCELLED"}
+
+    def __init__(self, order_id, from_location_id, to_location_id, priority, status="PENDING"):
+        if not isinstance(order_id, str) or not order_id.strip():
+            raise ValueError(f"Order ID must be a non-empty string, got: {order_id!r}")
+        if not isinstance(from_location_id, str) or not from_location_id.strip():
+            raise ValueError(f"From location ID must be a non-empty string, got: {from_location_id!r}")
+        if not isinstance(to_location_id, str) or not to_location_id.strip():
+            raise ValueError(f"To location ID must be a non-empty string, got: {to_location_id!r}")
+        if from_location_id.strip() == to_location_id.strip():
+            raise ValueError(f"Source and destination locations cannot be identical: {from_location_id!r}")
+        if not isinstance(priority, int) or priority < 1:
+            raise ValueError(f"Priority must be a positive integer (lower number = higher urgency), got: {priority}")
+        if not isinstance(status, str) or status.strip().upper() not in self.VALID_STATUSES:
+            raise ValueError(f"Status must be one of {self.VALID_STATUSES}, got: {status!r}")
+
+        self.order_id = order_id.strip()
+        self.from_location_id = from_location_id.strip()
+        self.to_location_id = to_location_id.strip()
+        self.priority = priority
+        self._status = status.strip().upper()
+        self._items = []
+
+    @property
+    def status(self):
+        return self._status
+
+    @status.setter
+    def status(self, value):
+        if not isinstance(value, str) or value.strip().upper() not in self.VALID_STATUSES:
+            raise ValueError(f"Status must be one of {self.VALID_STATUSES}, got: {value!r}")
+        self._status = value.strip().upper()
+
+    @property
+    def items(self):
+        return list(self._items)
+
+    def add_item(self, sku, quantity):
+        if not isinstance(sku, str) or not sku.strip():
+            raise ValueError(f"SKU must be a non-empty string, got: {sku!r}")
+        clean_sku = sku.strip()
+        for item in self._items:
+            if item.sku == clean_sku:
+                item.quantity += quantity
+                return
+        self._items.append(TransferOrderItem(clean_sku, quantity))
+
+    def remove_item(self, sku):
+        clean_sku = sku.strip()
+        for item in self._items:
+            if item.sku == clean_sku:
+                self._items.remove(item)
+                break
+
+    def get_total_units(self):
+        return sum(item.quantity for item in self._items)
+
+    def __len__(self):
+        return len(self._items)
+
+    def __lt__(self, other):
+        if not isinstance(other, TransferOrder):
+            return NotImplemented
+        return self.priority < other.priority
+
+    @classmethod
+    def from_dict(cls, data):
+        order = cls(
+            order_id=data["order_id"],
+            from_location_id=data["from_location_id"],
+            to_location_id=data["to_location_id"],
+            priority=data.get("priority", 3),
+            status=data.get("status", "PENDING"),
+        )
+        for item_data in data.get("items", []):
+            order.add_item(item_data["sku"], item_data["quantity"])
+        return order
+
+    def __str__(self):
+        return (
+            f"Order {self.order_id}: {self.from_location_id} -> {self.to_location_id} "
+            f"| Priority: {self.priority} | Status: {self.status} | Types: {len(self._items)}"
+        )
+
+    def __repr__(self):
+        return (
+            f"TransferOrder(order_id={self.order_id!r}, from_location_id={self.from_location_id!r}, "
+            f"to_location_id={self.to_location_id!r}, priority={self.priority!r}, status={self._status!r})"
+        )
