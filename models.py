@@ -148,3 +148,45 @@ class Location:
             f"Location(location_id={self.location_id!r}, name={self.name!r}, "
             f"location_type={self.location_type!r}, city={self.city!r})"
         )
+
+class InventoryItem:
+    def __init__(self, product, location_id, quantity, min_threshold):
+        if not isinstance(product, Product):
+            raise ValueError(f"Product must be an instance of Product, got: {type(product).__name__}")
+        if not isinstance(location_id, str) or not location_id.strip():
+            raise ValueError(f"Location ID must be a non-empty string, got: {location_id!r}")
+        if not isinstance(min_threshold, int) or min_threshold < 0:
+            raise ValueError(f"Minimum threshold must be a non-negative integer, got: {min_threshold}")
+
+        self.product = product
+        self.location_id = location_id.strip()
+        self.min_threshold = min_threshold
+        self.quantity = quantity
+
+    @property
+    def quantity(self) -> int:
+        return self._quantity
+
+    @quantity.setter
+    def quantity(self, value):
+        if not isinstance(value, int) or value < 0:
+            raise ValueError(f"Quantity must be a non-negative integer, got: {value}")
+        self._quantity = value
+
+    @property
+    def is_low_stock(self) -> bool:
+        return self._quantity <= self.min_threshold
+
+    def adjust_quantity(self, amount):
+        if not isinstance(amount, int):
+            raise ValueError(f"Adjustment amount must be an integer, got: {amount}")
+        new_qty = self._quantity + amount
+        if new_qty < 0:
+            raise ValueError(f"Cannot reduce stock below zero. Current: {self._quantity}, attempted change: {amount}")
+        self._quantity = new_qty
+
+    def __repr__(self) -> str:
+        return (
+            f"InventoryItem(product={self.product.sku!r}, location_id={self.location_id!r}, "
+            f"quantity={self._quantity!r}, min_threshold={self.min_threshold!r})"
+        )    
