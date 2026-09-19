@@ -112,3 +112,39 @@ class StandardProduct(Product):
             f"StandardProduct(sku={self.sku!r}, name={self.name!r}, brand={self.brand!r}, "
             f"price={self._price!r}, weight_kg={self.weight_kg!r})"
         )
+
+class Location:
+    VALID_LOCATIONS = {"STORE", "WAREHOUSE"}
+
+    def __init__(self, location_id, name, location_type, city):
+        if not isinstance(location_id, str) or not location_id.strip():
+            raise ValueError(f"Location ID must be a non-empty string, got: {location_id!r}")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"Name must be a non-empty string, got: {name!r}")
+        if not isinstance(city, str) or not city.strip():
+            raise ValueError(f"City must be a non-empty string, got: {city!r}")
+        if not isinstance(location_type, str) or location_type.strip().upper() not in self.VALID_LOCATIONS:
+                    raise ValueError(f"Location type must be one of {self.VALID_LOCATIONS}, got: {location_type!r}")
+
+        self.location_id = location_id.strip()
+        self.name = name.strip()
+        self.city = city.strip()
+        self.location_type = location_type
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            location_id=data["location_id"],
+            name=data["name"],
+            location_type=data["location_type"],
+            city=data["city"],
+        )
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.location_type}) - {self.city} [ID: {self.location_id}]"
+
+    def __repr__(self) -> str:
+        return (
+            f"Location(location_id={self.location_id!r}, name={self.name!r}, "
+            f"location_type={self._location_type!r}, city={self.city!r})"
+        )
