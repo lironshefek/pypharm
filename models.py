@@ -1,3 +1,4 @@
+import time
 from abc import ABC, abstractmethod
 
 
@@ -113,6 +114,7 @@ class StandardProduct(Product):
             f"price={self._price!r}, weight_kg={self.weight_kg!r})"
         )
 
+
 class Location:
     VALID_LOCATIONS = {"STORE", "WAREHOUSE"}
 
@@ -124,12 +126,12 @@ class Location:
         if not isinstance(city, str) or not city.strip():
             raise ValueError(f"City must be a non-empty string, got: {city!r}")
         if not isinstance(location_type, str) or location_type.strip().upper() not in self.VALID_LOCATIONS:
-                    raise ValueError(f"Location type must be one of {self.VALID_LOCATIONS}, got: {location_type!r}")
+            raise ValueError(f"Location type must be one of {self.VALID_LOCATIONS}, got: {location_type!r}")
 
         self.location_id = location_id.strip()
         self.name = name.strip()
         self.city = city.strip()
-        self.location_type = location_type
+        self.location_type = location_type.strip().upper()
 
     @classmethod
     def from_dict(cls, data: dict):
@@ -148,3 +150,375 @@ class Location:
             f"Location(location_id={self.location_id!r}, name={self.name!r}, "
             f"location_type={self.location_type!r}, city={self.city!r})"
         )
+
+
+class InventoryItem:
+    def __init__(self, product, location_id, quantity, min_threshold):
+        if not isinstance(product, Product):
+            raise ValueError(f"Product must be an instance of Product, got: {type(product).__name__}")
+        if not isinstance(location_id, str) or not location_id.strip():
+            raise ValueError(f"Location ID must be a non-empty string, got: {location_id!r}")
+        if not isinstance(min_threshold, int) or min_threshold < 0:
+            raise ValueError(f"Minimum threshold must be a non-negative integer, got: {min_threshold}")
+        if not isinstance(quantity, int) or quantity < 0:
+            raise ValueError(f"Quantity must be a non-negative integer, got: {quantity}")
+
+        self.product = product
+        self.location_id = location_id.strip()
+        self.min_threshold = min_threshold
+        self._quantity = quantity
+        self._reserved = 0
+        self._incoming = 0
+
+    @property
+    def quantity(self) -> int:
+        return self._quantity
+
+    @property
+    def reserved(self) -> int:
+        return self._reserved
+
+    @property
+    def incoming(self) -> int:
+        return self._incoming
+
+    @property
+    def available_quantity(self) -> int:
+        return self._quantity - self._reserved
+
+    @property
+    def is_low_stock(self) -> bool:
+        return self._quantity <= self.min_threshold
+
+    def reserve(self, amount: int):
+        if amount <= 0 or amount > self.available_quantity:
+            raise ValueError(f"Cannot reserve {amount}. Available: {self.available_quantity}")
+        self._reserved += amount
+
+    def release_reservation(self, amount: int):
+        if amount <= 0 or amount > self._reserved:
+            raise ValueError(f"Cannot release {amount}. Reserved: {self._reserved}")
+        self._reserved -= amount
+
+    def dispatch_reserved(self, amount: int):
+        if amount <= 0 or amount > self._reserved:
+            raise ValueError(f"Cannot dispatch {amount}. Reserved: {self._reserved}")
+        self._quantity -= amount
+        self._reserved -= amount
+
+    def add_incoming(self, amount: int):
+        if amount <= 0:
+            raise ValueError("Incoming amount must be positive")
+        self._incoming += amount
+
+    def receive_incoming(self, amount: int):
+        if amount <= 0 or amount > self._incoming:
+            raise ValueError(f"Cannot receive {amount}. Incoming: {self._incoming}")
+        self._incoming -= amount
+        self._quantity += amount
+
+    def adjust_quantity(self, amount):
+        if not isinstance(amount, int):
+            raise ValueError(f"Adjustment amount must be an integer, got: {amount}")
+        new_qty = self._quantity + amount
+        if new_qty < 0:
+            raise ValueError(f"Cannot reduce stock below zero. Current: {self._quantity}, attempted change: {amount}")
+        self._quantity = new_qty
+
+    def __repr__(self) -> str:
+        return (
+            f"InventoryItem(product={self.product.sku!r}, location_id={self.location_id!r}, "
+            f"quantity={self._quantity!r}, reserved={self._reserved!r}, incoming={self._incoming!r}, "
+            f"min_threshold={self.min_threshold!r})"
+        )
+
+
+class TransferOrderItem:
+    def __init__(self, sku, quantity):
+        if not isinstance(sku, str) or not sku.strip():
+            raise ValueError(f"SKU must be a non-empty string, got: {sku!r}")
+        if not isinstance(quantity, int) or quantity <= 0:
+            raise ValueError(f"Quantity must be a positive integer, got: {quantity!r}")
+
+        self.sku = sku.strip()
+        self._quantity = quantity
+
+    @property
+    def quantity(self):
+        return self._quantity
+
+    @quantity.setter
+    def quantity(self, value):
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"Quantity must be a positive integer, got: {value!r}")
+        self._quantity = value
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            sku=data["sku"],
+            quantity=data["quantity"],
+        )
+
+    def __str__(self):
+        return f"{self.sku} x {self._quantity}"
+
+    def __repr__(self):
+        return f"TransferOrderItem(sku={self.sku!r}, quantity={self._quantity!r})"
+
+
+class TransferOrder:
+    VALID_STATUSES = {"PENDING", "IN_TRANSIT", "DELIVERED", "CANCELLED"}
+
+    def __init__(self, order_id, from_location_id, to_location_id, priority, status="PENDING", created_at=None):
+        if not isinstance(order_id, str) or not order_id.strip():
+            raise ValueError(f"Order ID must be a non-empty string, got: {order_id!r}")
+        if not isinstance(from_location_id, str) or not from_location_id.strip():
+            raise ValueError(f"From location ID must be a non-empty string, got: {from_location_id!r}")
+        if not isinstance(to_location_id, str) or not to_location_id.strip():
+            raise ValueError(f"To location ID must be a non-empty string, got: {to_location_id!r}")
+        if from_location_id.strip() == to_location_id.strip():
+            raise ValueError(f"Source and destination locations cannot be identical: {from_location_id!r}")
+        if not isinstance(priority, int) or priority < 1:
+            raise ValueError(f"Priority must be a positive integer (lower number = higher urgency), got: {priority}")
+        if not isinstance(status, str) or status.strip().upper() not in self.VALID_STATUSES:
+            raise ValueError(f"Status must be one of {self.VALID_STATUSES}, got: {status!r}")
+
+        self.order_id = order_id.strip()
+        self.from_location_id = from_location_id.strip()
+        self.to_location_id = to_location_id.strip()
+        self.priority = priority
+        self.created_at = created_at if created_at is not None else time.time()
+        self._status = status.strip().upper()
+        self._items = []
+
+    @property
+    def status(self):
+        return self._status
+
+    @status.setter
+    def status(self, value):
+        if not isinstance(value, str) or value.strip().upper() not in self.VALID_STATUSES:
+            raise ValueError(f"Status must be one of {self.VALID_STATUSES}, got: {value!r}")
+        self._status = value.strip().upper()
+
+    @property
+    def items(self):
+        return list(self._items)
+
+    def add_item(self, sku, quantity):
+        if not isinstance(sku, str) or not sku.strip():
+            raise ValueError(f"SKU must be a non-empty string, got: {sku!r}")
+        clean_sku = sku.strip()
+        for item in self._items:
+            if item.sku == clean_sku:
+                item.quantity += quantity
+                return
+        self._items.append(TransferOrderItem(clean_sku, quantity))
+
+    def remove_item(self, sku):
+        clean_sku = sku.strip()
+        for item in self._items:
+            if item.sku == clean_sku:
+                self._items.remove(item)
+                break
+
+    def get_total_units(self):
+        return sum(item.quantity for item in self._items)
+
+    def __len__(self):
+        return len(self._items)
+
+    def __lt__(self, other):
+        if not isinstance(other, TransferOrder):
+            return NotImplemented
+        if self.priority != other.priority:
+            return self.priority < other.priority
+        return self.created_at < other.created_at
+
+    @classmethod
+    def from_dict(cls, data):
+        order = cls(
+            order_id=data["order_id"],
+            from_location_id=data["from_location_id"],
+            to_location_id=data["to_location_id"],
+            priority=data.get("priority", 3),
+            status=data.get("status", "PENDING"),
+            created_at=data.get("created_at"),
+        )
+        for item_data in data.get("items", []):
+            order.add_item(item_data["sku"], item_data["quantity"])
+        return order
+
+    def __str__(self):
+        return (
+            f"Order {self.order_id}: {self.from_location_id} -> {self.to_location_id} "
+            f"| Priority: {self.priority} | Status: {self.status} | Types: {len(self._items)}"
+        )
+
+    def __repr__(self):
+        return (
+            f"TransferOrder(order_id={self.order_id!r}, from_location_id={self.from_location_id!r}, "
+            f"to_location_id={self.to_location_id!r}, priority={self.priority!r}, "
+            f"status={self._status!r}, created_at={self.created_at!r})"
+        )
+
+
+class Employee:
+    VALID_ROLES = {"WAREHOUSE_WORKER", "LOGISTICS_MANAGER", "PHARMACIST", "CASHIER"}
+
+    def __init__(self, employee_id, name, role, is_active=True):
+        if not isinstance(employee_id, str) or not employee_id.strip():
+            raise ValueError(f"Employee ID must be a non-empty string, got: {employee_id!r}")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"Name must be a non-empty string, got: {name!r}")
+        if not isinstance(is_active, bool):
+            raise ValueError(f"is_active must be a boolean, got: {is_active!r}")
+
+        self.employee_id = employee_id.strip()
+        self.name = name.strip()
+        self.is_active = is_active
+        self._role = role
+
+    @property
+    def role(self) -> str:
+        return self._role
+
+    @role.setter
+    def role(self, value):
+        if not isinstance(value, str) or value.strip().upper() not in self.VALID_ROLES:
+            raise ValueError(f"Invalid role: {value!r}. Must be one of {self.VALID_ROLES}")
+        self._role = value.strip().upper()
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            employee_id=data["employee_id"],
+            name=data["name"],
+            role=data["role"],
+            is_active=data.get("is_active", True),
+        )
+
+    def __str__(self) -> str:
+        status_str = "ACTIVE" if self.is_active else "INACTIVE"
+        return f"{self.name} ({self._role}) [{self.employee_id}] - {status_str}"
+
+    def __repr__(self) -> str:
+        return (
+            f"Employee(employee_id={self.employee_id!r}, name={self.name!r}, "
+            f"role={self._role!r}, is_active={self.is_active!r})"
+        )
+
+
+class OrderActionAuthorizer:
+    DEFAULT_PERMISSIONS = {
+        "UPDATE_STATUS": {"WAREHOUSE_WORKER", "LOGISTICS_MANAGER"},
+        "CANCEL_ORDER": {"LOGISTICS_MANAGER"},
+    }
+
+    def __init__(self, permissions_map=None):
+        if permissions_map is None:
+            self._permissions = {
+                action: set(roles) for action, roles in self.DEFAULT_PERMISSIONS.items()
+            }
+        else:
+            if not isinstance(permissions_map, dict):
+                raise ValueError("Permissions map must be a dictionary")
+            self._permissions = {
+                action: set(roles) for action, roles in permissions_map.items()
+            }
+
+    @property
+    def permissions(self):
+        return {action: set(roles) for action, roles in self._permissions.items()}
+
+    def is_authorized(self, employee, action_name) -> bool:
+        if not isinstance(employee, Employee):
+            raise ValueError(f"Must provide a valid Employee instance, got: {type(employee).__name__}")
+        if not employee.is_active:
+            return False
+
+        allowed_roles = self._permissions.get(action_name, set())
+        return employee.role in allowed_roles
+
+    def authorize_and_update_status(self, order, employee, new_status):
+        if not isinstance(employee, Employee):
+            raise ValueError(f"Must provide a valid Employee instance, got: {type(employee).__name__}")
+
+        if not employee.is_active:
+            raise PermissionError(
+                f"Action denied: Employee {employee.employee_id!r} is inactive."
+            )
+
+        if not self.is_authorized(employee, "UPDATE_STATUS"):
+            raise PermissionError(
+                f"Permission denied: Employee {employee.name!r} with role {employee.role!r} "
+                f"is not authorized to update order statuses."
+            )
+
+        order.status = new_status
+        return True
+
+    def validate_employees_integrity(self, orders, employees_catalog) -> tuple:
+        errors = []
+        for order in orders:
+            emp_id = getattr(order, "handled_by_employee_id", None)
+            if emp_id is not None:
+                if emp_id not in employees_catalog:
+                    errors.append(
+                        f"Integrity Error: Order {order.order_id!r} references unknown employee {emp_id!r}."
+                    )
+                elif not employees_catalog[emp_id].is_active:
+                    errors.append(
+                        f"Integrity Error: Order {order.order_id!r} references inactive employee {emp_id!r}."
+                    )
+        return len(errors) == 0, errors
+
+    def __repr__(self) -> str:
+        return f"OrderActionAuthorizer(actions={list(self._permissions.keys())!r})"
+
+
+def calculate_order_priority(inventory_item: InventoryItem) -> int:
+    if inventory_item.quantity == 0:
+        return 1
+    if inventory_item.is_low_stock:
+        return 2
+    return 3
+
+
+def process_order_lifecycle(order: TransferOrder, source_inventory: dict, dest_inventory: dict, action: str) -> bool:
+    if action == "RESERVE":
+        for item in order.items:
+            inv = source_inventory.get(item.sku)
+            if not inv or inv.available_quantity < item.quantity:
+                return False
+
+        for item in order.items:
+            source_inventory[item.sku].reserve(item.quantity)
+            if item.sku in dest_inventory:
+                dest_inventory[item.sku].add_incoming(item.quantity)
+        return True
+
+    elif action == "DISPATCH":
+        for item in order.items:
+            source_inventory[item.sku].dispatch_reserved(item.quantity)
+        order.status = "IN_TRANSIT"
+        return True
+
+    elif action == "DELIVER":
+        for item in order.items:
+            if item.sku in dest_inventory:
+                dest_inventory[item.sku].receive_incoming(item.quantity)
+        order.status = "DELIVERED"
+        return True
+
+    elif action == "CANCEL":
+        if order.status == "PENDING":
+            for item in order.items:
+                source_inventory[item.sku].release_reservation(item.quantity)
+                if item.sku in dest_inventory:
+                    dest_inventory[item.sku]._incoming -= item.quantity
+        order.status = "CANCELLED"
+        return True
+
+    return False
