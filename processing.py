@@ -70,6 +70,12 @@ class InventoryRegistry:
 
     def get_product(self, sku: str) -> Product:
         return self.products_by_sku.get(sku, None)
+    
+    def count_products_by_brand(self) -> dict[str, int]:
+        brand_counts = {}
+        for product in self.products_by_sku.values():
+            brand_counts[product.brand] = brand_counts.get(product.brand, 0) + 1
+        return brand_counts
 
     def register_inventory_item(self, item: InventoryItem):
         if item.location_id not in self.inventory_by_location:
