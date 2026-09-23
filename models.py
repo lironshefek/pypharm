@@ -3,15 +3,14 @@ from abc import ABC, abstractmethod
 
 
 def _require_non_empty_str(value, field_name: str) -> str:
-    """Shared validation helper: used by every constructor below instead of
-    repeating the same isinstance/strip check in each class."""
+    """Shared validation helper: used by constructors to enforce non-empty string fields."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string, got: {value!r}")
     return value.strip()
 
 
 class Product(ABC):
-    def __init__(self, sku, name, brand, price):
+    def __init__(self, sku: str, name: str, brand: str, price: float):
         self.sku = _require_non_empty_str(sku, "SKU")
         self.name = _require_non_empty_str(name, "Name")
         self.brand = _require_non_empty_str(brand, "Brand")
@@ -24,7 +23,7 @@ class Product(ABC):
         return self._price
 
     @price.setter
-    def price(self, value):
+    def price(self, value: float):
         if not isinstance(value, (int, float)) or value <= 0:
             raise ValueError(f"Price must be a positive number, got: {value}")
         self._price = float(value)
@@ -45,7 +44,15 @@ class Product(ABC):
 
 
 class PerishableProduct(Product):
-    def __init__(self, sku, name, brand, price, expiry_date, requires_refrigeration):
+    def __init__(
+        self,
+        sku: str,
+        name: str,
+        brand: str,
+        price: float,
+        expiry_date: str,
+        requires_refrigeration: bool,
+    ):
         super().__init__(sku, name, brand, price)
         self.expiry_date = _require_non_empty_str(expiry_date, "Expiry date")
         if not isinstance(requires_refrigeration, bool):
@@ -82,7 +89,7 @@ class PerishableProduct(Product):
 
 
 class StandardProduct(Product):
-    def __init__(self, sku, name, brand, price, weight_kg):
+    def __init__(self, sku: str, name: str, brand: str, price: float, weight_kg: float):
         super().__init__(sku, name, brand, price)
         if not isinstance(weight_kg, (int, float)) or weight_kg <= 0:
             raise ValueError(f"Weight must be a positive number, got: {weight_kg}")
@@ -115,7 +122,7 @@ class StandardProduct(Product):
 class Location:
     VALID_LOCATIONS = {"STORE", "WAREHOUSE"}
 
-    def __init__(self, location_id, name, location_type, city):
+    def __init__(self, location_id: str, name: str, location_type: str, city: str):
         self.location_id = _require_non_empty_str(location_id, "Location ID")
         self.name = _require_non_empty_str(name, "Name")
         self.city = _require_non_empty_str(city, "City")
@@ -145,7 +152,7 @@ class Location:
 
 
 class InventoryItem:
-    def __init__(self, product, location_id, quantity, min_threshold):
+    def __init__(self, product: Product, location_id: str, quantity: int, min_threshold: int):
         if not isinstance(product, Product):
             raise ValueError(f"Product must be an instance of Product, got: {type(product).__name__}")
         self.location_id = _require_non_empty_str(location_id, "Location ID")
@@ -162,9 +169,6 @@ class InventoryItem:
 
     @classmethod
     def from_dict(cls, data: dict, product: Product):
-        """Alternative constructor. `product` must already be a resolved
-        Product instance (looked up by SKU from a product registry),
-        since InventoryItem does not own product data itself."""
         return cls(
             product=product,
             location_id=data["location_id"],
@@ -220,14 +224,11 @@ class InventoryItem:
         self._quantity += amount
 
     def reduce_incoming(self, amount: int):
-        """Cancel an expected incoming shipment (e.g. when a TransferOrder
-        that had added incoming stock gets cancelled before delivery).
-        Kept as a public method so callers never touch `_incoming` directly."""
         if amount <= 0 or amount > self._incoming:
             raise ValueError(f"Cannot reduce incoming by {amount}. Incoming: {self._incoming}")
         self._incoming -= amount
 
-    def adjust_quantity(self, amount):
+    def adjust_quantity(self, amount: int):
         if not isinstance(amount, int):
             raise ValueError(f"Adjustment amount must be an integer, got: {amount}")
         new_qty = self._quantity + amount
@@ -251,41 +252,49 @@ class InventoryItem:
 
 
 class TransferOrderItem:
-    def __init__(self, sku, quantity):
+    def __init__(self, sku: str, quantity: int):
         self.sku = _require_non_empty_str(sku, "SKU")
         if not isinstance(quantity, int) or quantity <= 0:
             raise ValueError(f"Quantity must be a positive integer, got: {quantity!r}")
         self._quantity = quantity
 
     @property
-    def quantity(self):
+    def quantity(self) -> int:
         return self._quantity
 
     @quantity.setter
-    def quantity(self, value):
+    def quantity(self, value: int):
         if not isinstance(value, int) or value <= 0:
             raise ValueError(f"Quantity must be a positive integer, got: {value!r}")
         self._quantity = value
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict):
         return cls(
             sku=data["sku"],
             quantity=data["quantity"],
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.sku} x {self._quantity}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"TransferOrderItem(sku={self.sku!r}, quantity={self._quantity!r})"
 
 
 class TransferOrder:
     VALID_STATUSES = {"PENDING", "IN_TRANSIT", "DELIVERED", "CANCELLED"}
 
-    def __init__(self, order_id, from_location_id, to_location_id, priority, status="PENDING",
-                 created_at=None, handled_by_employee_id=None):
+    def __init__(
+        self,
+        order_id: str,
+        from_location_id: str,
+        to_location_id: str,
+        priority: int,
+        status: str = "PENDING",
+        created_at: float = None,
+        handled_by_employee_id: str = None,
+    ):
         self.order_id = _require_non_empty_str(order_id, "Order ID")
         self.from_location_id = _require_non_empty_str(from_location_id, "From location ID")
         self.to_location_id = _require_non_empty_str(to_location_id, "To location ID")
@@ -299,8 +308,6 @@ class TransferOrder:
             raise ValueError(f"Status must be one of {self.VALID_STATUSES}, got: {status!r}")
         self._status = clean_status
 
-        # handled_by_employee_id is optional (None until an employee is assigned),
-        # so it only goes through the helper when it is actually provided.
         if handled_by_employee_id is not None:
             handled_by_employee_id = _require_non_empty_str(handled_by_employee_id, "handled_by_employee_id")
         self.handled_by_employee_id = handled_by_employee_id
@@ -310,25 +317,24 @@ class TransferOrder:
         self._items = []
 
     def assign_employee(self, employee_id: str):
-        """Attach (or reassign) the employee responsible for this order."""
         self.handled_by_employee_id = _require_non_empty_str(employee_id, "employee_id")
 
     @property
-    def status(self):
+    def status(self) -> str:
         return self._status
 
     @status.setter
-    def status(self, value):
+    def status(self, value: str):
         clean_status = _require_non_empty_str(value, "Status").upper()
         if clean_status not in self.VALID_STATUSES:
             raise ValueError(f"Status must be one of {self.VALID_STATUSES}, got: {value!r}")
         self._status = clean_status
 
     @property
-    def items(self):
+    def items(self) -> list:
         return list(self._items)
 
-    def add_item(self, sku, quantity):
+    def add_item(self, sku: str, quantity: int):
         clean_sku = _require_non_empty_str(sku, "SKU")
         for item in self._items:
             if item.sku == clean_sku:
@@ -336,20 +342,21 @@ class TransferOrder:
                 return
         self._items.append(TransferOrderItem(clean_sku, quantity))
 
-    def remove_item(self, sku):
-        clean_sku = sku.strip()
+    def remove_item(self, sku: str) -> bool:
+        clean_sku = sku.strip() if isinstance(sku, str) else sku
         for item in self._items:
             if item.sku == clean_sku:
                 self._items.remove(item)
-                break
+                return True
+        return False
 
-    def get_total_units(self):
+    def get_total_units(self) -> int:
         return sum(item.quantity for item in self._items)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._items)
 
-    def __lt__(self, other):
+    def __lt__(self, other) -> bool:
         if not isinstance(other, TransferOrder):
             return NotImplemented
         if self.priority != other.priority:
@@ -357,7 +364,7 @@ class TransferOrder:
         return self.created_at < other.created_at
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict):
         order = cls(
             order_id=data["order_id"],
             from_location_id=data["from_location_id"],
@@ -371,7 +378,7 @@ class TransferOrder:
             order.add_item(item_data["sku"], item_data["quantity"])
         return order
 
-    def __str__(self):
+    def __str__(self) -> str:
         handler = self.handled_by_employee_id or "unassigned"
         return (
             f"Order {self.order_id}: {self.from_location_id} -> {self.to_location_id} "
@@ -379,7 +386,7 @@ class TransferOrder:
             f"| Handled by: {handler}"
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"TransferOrder(order_id={self.order_id!r}, from_location_id={self.from_location_id!r}, "
             f"to_location_id={self.to_location_id!r}, priority={self.priority!r}, "
@@ -391,7 +398,7 @@ class TransferOrder:
 class Employee:
     VALID_ROLES = {"WAREHOUSE_WORKER", "LOGISTICS_MANAGER", "PHARMACIST", "CASHIER"}
 
-    def __init__(self, employee_id, name, role, is_active=True):
+    def __init__(self, employee_id: str, name: str, role: str, is_active: bool = True):
         self.employee_id = _require_non_empty_str(employee_id, "Employee ID")
         self.name = _require_non_empty_str(name, "Name")
         if not isinstance(is_active, bool):
@@ -408,11 +415,17 @@ class Employee:
         return self._role
 
     @role.setter
-    def role(self, value):
+    def role(self, value: str):
         clean_role = _require_non_empty_str(value, "Role").upper()
         if clean_role not in self.VALID_ROLES:
             raise ValueError(f"Invalid role: {value!r}. Must be one of {self.VALID_ROLES}")
         self._role = clean_role
+
+    def deactivate(self):
+        self.is_active = False
+
+    def activate(self):
+        self.is_active = True
 
     @classmethod
     def from_dict(cls, data: dict):
@@ -435,26 +448,39 @@ class Employee:
 
 
 class OrderActionAuthorizer:
-    """Central place for order-related authorization rules.
-    Simplified: permissions are fixed (no configurable permissions_map),
-    since the assignment only requires the operations below, not
-    runtime-configurable rules."""
-
-    PERMISSIONS = {
+    DEFAULT_PERMISSIONS = {
         "UPDATE_STATUS": {"WAREHOUSE_WORKER", "LOGISTICS_MANAGER"},
         "CANCEL_ORDER": {"LOGISTICS_MANAGER"},
     }
 
-    def is_authorized(self, employee, action_name) -> bool:
+    def __init__(self, system_name: str = "Pharmacy Logistics Authorizer", permissions_map: dict = None):
+        self.system_name = _require_non_empty_str(system_name, "System name")
+        if permissions_map is None:
+            self._permissions = {
+                action: set(roles) for action, roles in self.DEFAULT_PERMISSIONS.items()
+            }
+        else:
+            if not isinstance(permissions_map, dict):
+                raise ValueError("Permissions map must be a dictionary")
+            self._permissions = {
+                action: set(roles) for action, roles in permissions_map.items()
+            }
+        self._action_history = []
+
+    @property
+    def action_history(self) -> list:
+        return list(self._action_history)
+
+    def is_authorized(self, employee: Employee, action_name: str) -> bool:
         if not isinstance(employee, Employee):
             raise ValueError(f"Must provide a valid Employee instance, got: {type(employee).__name__}")
         if not employee.is_active:
             return False
 
-        allowed_roles = self.PERMISSIONS.get(action_name, set())
+        allowed_roles = self._permissions.get(action_name, set())
         return employee.role in allowed_roles
 
-    def authorize_and_update_status(self, order, employee, new_status):
+    def authorize_and_update_status(self, order: TransferOrder, employee: Employee, new_status: str):
         if not isinstance(employee, Employee):
             raise ValueError(f"Must provide a valid Employee instance, got: {type(employee).__name__}")
 
@@ -469,26 +495,29 @@ class OrderActionAuthorizer:
                 f"is not authorized to update order statuses."
             )
 
+        old_status = order.status
         order.status = new_status
-        # Real link between the Employee subsystem and the central model:
-        # updating a TransferOrder's status now records who did it.
         order.assign_employee(employee.employee_id)
+
+        self._action_history.append({
+            "order_id": order.order_id,
+            "employee_id": employee.employee_id,
+            "action": "UPDATE_STATUS",
+            "old_status": old_status,
+            "new_status": new_status,
+            "timestamp": time.time(),
+        })
         return True
 
-    def validate_employees_integrity(self, orders, employees_catalog) -> tuple:
-        errors = []
-        for order in orders:
-            emp_id = order.handled_by_employee_id
-            if emp_id is not None:
-                if emp_id not in employees_catalog:
-                    errors.append(
-                        f"Integrity Error: Order {order.order_id!r} references unknown employee {emp_id!r}."
-                    )
-                elif not employees_catalog[emp_id].is_active:
-                    errors.append(
-                        f"Integrity Error: Order {order.order_id!r} references inactive employee {emp_id!r}."
-                    )
-        return len(errors) == 0, errors
+    @classmethod
+    def create_default(cls):
+        return cls(system_name="Standard Network Authorizer")
+
+    def __str__(self) -> str:
+        return f"{self.system_name} ({len(self._action_history)} audited actions)"
 
     def __repr__(self) -> str:
-        return f"OrderActionAuthorizer(actions={list(self.PERMISSIONS.keys())!r})"
+        return (
+            f"OrderActionAuthorizer(system_name={self.system_name!r}, "
+            f"audited_actions_count={len(self._action_history)})"
+        )

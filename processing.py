@@ -5,53 +5,63 @@ List, tuple, set, dict, deque, heapq, comprehensions, sorting, and business logi
 
 from collections import deque
 import heapq
-from typing import List, Dict, Set, Tuple
-from .models import Product, Location, InventoryItem, TransferOrder
+from models import (
+    Product,
+    Location,
+    InventoryItem,
+    TransferOrder,
+    Employee,
+    OrderActionAuthorizer,
+)
 
-def process_shipment_manifest(manifest_records: List[Tuple]) -> dict:
+
+def process_shipment_manifest(manifest_records: list[tuple]) -> dict:
     summary = {}
     for record in manifest_records:
         order_id, destination, *skus = record
         summary[order_id] = {
             "destination": destination,
             "items_count": len(skus),
-            "skus": skus
+            "skus": skus,
         }
     return summary
 
 
 class LocationCategoryTracker:
     def __init__(self):
-        self.active_locations: Set[str] = set()
-        self.refrigerated_locations: Set[str] = set()
+        self.active_locations: set[str] = set()
+        self.refrigerated_locations: set[str] = set()
 
-    def register_location(self, location_id: str, is_refrigerated: bool = False):
-        self.active_locations.add(location_id)
+    def register_location(self, location: Location | str, is_refrigerated: bool = False):
+        loc_id = location.location_id if isinstance(location, Location) else str(location)
+        self.active_locations.add(loc_id)
         if is_refrigerated:
-            self.refrigerated_locations.add(location_id)
+            self.refrigerated_locations.add(loc_id)
 
-    def deactivate_location(self, location_id: str):
-        self.active_locations.discard(location_id)
-        if location_id in self.refrigerated_locations:
-            self.refrigerated_locations.remove(location_id)
+    def deactivate_location(self, location: Location | str):
+        loc_id = location.location_id if isinstance(location, Location) else str(location)
+        self.active_locations.discard(loc_id)
+        if loc_id in self.refrigerated_locations:
+            self.refrigerated_locations.remove(loc_id)
 
-    def check_location_exists(self, location_id: str) -> bool:
-        return location_id in self.active_locations
+    def check_location_exists(self, location: Location | str) -> bool:
+        loc_id = location.location_id if isinstance(location, Location) else str(location)
+        return loc_id in self.active_locations
 
-    def get_non_refrigerated_locations(self) -> Set[str]:
+    def get_non_refrigerated_locations(self) -> set[str]:
         return self.active_locations - self.refrigerated_locations
 
-    def get_common_locations(self, other_set: Set[str]) -> Set[str]:
+    def get_common_locations(self, other_set: set[str]) -> set[str]:
         return self.active_locations.intersection(other_set)
 
-    def combine_locations(self, other_set: Set[str]) -> Set[str]:
+    def combine_locations(self, other_set: set[str]) -> set[str]:
         return self.active_locations | other_set
 
 
 class InventoryRegistry:
     def __init__(self):
-        self.products_by_sku: Dict[str, Product] = {}
-        self.inventory_by_location: Dict[str, List[InventoryItem]] = {}
+        self.products_by_sku: dict[str, Product] = {}
+        self.inventory_by_location: dict[str, list[InventoryItem]] = {}
 
     def add_product(self, product: Product, overwrite: bool = False):
         if product.sku in self.products_by_sku and not overwrite:
@@ -83,7 +93,7 @@ class OrderProcessingQueue:
             return None
         return self._queue.popleft()
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._queue)
 
 
@@ -99,19 +109,19 @@ class PriorityTransferQueue:
             return None
         return heapq.heappop(self._heap)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._heap)
 
 
-def filter_high_value_products(products: List[Product], min_price: float) -> List[str]:
+def filter_high_value_products(products: list[Product], min_price: float) -> list[str]:
     return [p.name for p in products if p.price > min_price]
 
 
-def extract_unique_brands(products: List[Product]) -> Set[str]:
+def extract_unique_brands(products: list[Product]) -> set[str]:
     return {p.brand for p in products}
 
 
-def build_sku_to_price_map(products: List[Product]) -> Dict[str, float]:
+def build_sku_to_price_map(products: list[Product]) -> dict[str, float]:
     return {p.sku: p.price for p in products}
 
 
@@ -119,15 +129,15 @@ def _get_product_price(product: Product) -> float:
     return product.price
 
 
-def sort_products_by_price(products: List[Product]) -> List[Product]:
+def sort_products_by_price(products: list[Product]) -> list[Product]:
     return sorted(products, key=_get_product_price)
 
 
-def sort_products_by_name(products: List[Product]) -> List[Product]:
+def sort_products_by_name(products: list[Product]) -> list[Product]:
     return sorted(products, key=lambda p: p.name)
 
 
-def sort_inventory_items_multi_criteria(items: List[InventoryItem]) -> List[InventoryItem]:
+def sort_inventory_items_multi_criteria(items: list[InventoryItem]) -> list[InventoryItem]:
     return sorted(items, key=lambda item: (item.location_id, -item.available_quantity))
 
 
@@ -139,7 +149,14 @@ def calculate_order_priority(inventory_item: InventoryItem) -> int:
     return 3
 
 
-def process_order_lifecycle(order: TransferOrder, source_inventory: dict, dest_inventory: dict, action: str) -> bool:
+def process_order_lifecycle(
+    order: TransferOrder,
+    source_inventory: dict,
+    dest_inventory: dict,
+    action: str,
+    employee: Employee = None,
+    authorizer: OrderActionAuthorizer = None,
+) -> bool:
     if action == "RESERVE":
         for item in order.items:
             inv = source_inventory.get(item.sku)
@@ -155,14 +172,22 @@ def process_order_lifecycle(order: TransferOrder, source_inventory: dict, dest_i
     elif action == "DISPATCH":
         for item in order.items:
             source_inventory[item.sku].dispatch_reserved(item.quantity)
-        order.status = "IN_TRANSIT"
+
+        if employee is not None and authorizer is not None:
+            authorizer.authorize_and_update_status(order, employee, "IN_TRANSIT")
+        else:
+            order.status = "IN_TRANSIT"
         return True
 
     elif action == "DELIVER":
         for item in order.items:
             if item.sku in dest_inventory:
                 dest_inventory[item.sku].receive_incoming(item.quantity)
-        order.status = "DELIVERED"
+
+        if employee is not None and authorizer is not None:
+            authorizer.authorize_and_update_status(order, employee, "DELIVERED")
+        else:
+            order.status = "DELIVERED"
         return True
 
     elif action == "CANCEL":
@@ -171,7 +196,31 @@ def process_order_lifecycle(order: TransferOrder, source_inventory: dict, dest_i
                 source_inventory[item.sku].release_reservation(item.quantity)
                 if item.sku in dest_inventory:
                     dest_inventory[item.sku].reduce_incoming(item.quantity)
-        order.status = "CANCELLED"
+
+        if employee is not None and authorizer is not None:
+            authorizer.authorize_and_update_status(order, employee, "CANCELLED")
+        else:
+            order.status = "CANCELLED"
         return True
 
     return False
+
+
+def validate_employees_integrity(
+    orders: list[TransferOrder],
+    employees_catalog: dict[str, Employee],
+) -> tuple[bool, list[str]]:
+    """Business logic that validates that orders reference valid, active employees."""
+    errors = []
+    for order in orders:
+        emp_id = order.handled_by_employee_id
+        if emp_id is not None:
+            if emp_id not in employees_catalog:
+                errors.append(
+                    f"Integrity Error: Order {order.order_id!r} references unknown employee {emp_id!r}."
+                )
+            elif not employees_catalog[emp_id].is_active:
+                errors.append(
+                    f"Integrity Error: Order {order.order_id!r} references inactive employee {emp_id!r}."
+                )
+    return len(errors) == 0, errors
