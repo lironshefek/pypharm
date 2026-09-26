@@ -1,0 +1,17 @@
+# Virtual environment
+.venv/
+
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+
+# IDE
+.idea/
+.vscode/
+
+# AI agent tooling (a5c.ai local runs/config)
+.a5c/
+
+# Environment variables / secrets
+.env
+
