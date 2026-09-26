@@ -17,7 +17,7 @@ from models import (
 )
 
 from iterators import (
-    OrderRegistry,
+    OrderBatch,
     OrderIterator,
     open_orders_generator,
     critical_priority_orders_pipeline,
@@ -37,7 +37,7 @@ __all__ = [
     "Employee",
     "OrderActionAuthorizer",
     # Iterators & Generators
-    "OrderRegistry",
+    "OrderBatch",
     "OrderIterator",
     "open_orders_generator",
     "critical_priority_orders_pipeline",
