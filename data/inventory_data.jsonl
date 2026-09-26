@@ -1,0 +1,11 @@
+{"entity_type": "inventory_item", "sku": "CRM-1001", "location_id": "STORE-TLV", "quantity": 18, "min_threshold": 5}
+{"entity_type": "inventory_item", "sku": "CRM-1003", "location_id": "STORE-TLV", "quantity": 3, "min_threshold": 8}
+{"entity_type": "inventory_item", "sku": "PRF-2001", "location_id": "STORE-TLV", "quantity": 10, "min_threshold": 4}
+{"entity_type": "inventory_item", "sku": "MKP-3001", "location_id": "STORE-TLV", "quantity": 25, "min_threshold": 6}
+{"entity_type": "inventory_item", "sku": "CRM-1005", "location_id": "WH-CENTRAL", "quantity": 50, "min_threshold": 12}
+{"entity_type": "inventory_item", "sku": "PRF-2002", "location_id": "STORE-HAIFA", "quantity": 2, "min_threshold": 5}
+{"entity_type": "inventory_item", "sku": "MKP-3003", "location_id": "STORE-HAIFA", "quantity": 14, "min_threshold": 4}
+{"entity_type": "transfer_order", "order_id": "ORD-501", "from_location_id": "WH-CENTRAL", "to_location_id": "STORE-TLV", "priority": 1, "status": "PENDING", "handled_by_employee_id": "EMP-101", "items": [{"sku": "CRM-1003", "quantity": 12}, {"sku": "CRM-1005", "quantity": 6}]}
+{"entity_type": "transfer_order", "order_id": "ORD-502", "from_location_id": "WH-CENTRAL", "to_location_id": "STORE-HAIFA", "priority": 2, "status": "PENDING", "handled_by_employee_id": "EMP-102", "items": [{"sku": "PRF-2002", "quantity": 8}]}
+{"entity_type": "transfer_order", "order_id": "ORD-503", "from_location_id": "STORE-TLV", "to_location_id": "STORE-HAIFA", "priority": 4, "status": "PENDING", "handled_by_employee_id": "EMP-101", "items": [{"sku": "MKP-3001", "quantity": 5}]}
+{"entity_type": "transfer_order", "order_id": "ORD-504", "from_location_id": "WH-CENTRAL", "to_location_id": "STORE-TLV", "priority": 1, "status": "PENDING", "handled_by_employee_id": "EMP-999", "items": [{"sku": "PRF-2001", "quantity": 4}]}
