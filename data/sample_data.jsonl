@@ -13,7 +13,7 @@
 {"entity_type": "location", "location_id": "WH-CENTRAL", "name": "Central Logistics Hub", "location_type": "WAREHOUSE", "city": "Modiin"}
 {"entity_type": "location", "location_id": "STORE-TLV", "name": "Dizengoff Beauty Boutique", "location_type": "STORE", "city": "Tel Aviv"}
 {"entity_type": "location", "location_id": "STORE-HAIFA", "name": "Grand Canyon Branch", "location_type": "STORE", "city": "Haifa"}
-{"entity_type": "employee", "employee_id": "EMP-101", "name": "Liron Shefek", "role": "LOGISTICS_MANAGER", "is_active": true}
-{"entity_type": "employee", "employee_id": "EMP-102", "name": "Ruth", "role": "WAREHOUSE_WORKER", "is_active": true}
-{"entity_type": "employee", "employee_id": "EMP-103", "name": "Idan", "role": "PHARMACIST", "is_active": true}
-{"entity_type": "employee", "employee_id": "EMP-104", "name": "Noa", "role": "CASHIER", "is_active": true}
+{"entity_type": "employee", "employee_id": "EMP-101", "name": "Liron S", "role": "LOGISTICS_MANAGER", "is_active": true}
+{"entity_type": "employee", "employee_id": "EMP-102", "name": "Ruth S", "role": "WAREHOUSE_WORKER", "is_active": true}
+{"entity_type": "employee", "employee_id": "EMP-103", "name": "Idan K", "role": "PHARMACIST", "is_active": true}
+{"entity_type": "employee", "employee_id": "EMP-104", "name": "Noa C", "role": "CASHIER", "is_active": true}
