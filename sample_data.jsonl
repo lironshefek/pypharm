@@ -1,0 +1,19 @@
+{"entity_type": "perishable_product", "sku": "CRM-1001", "name": "Advanced Night Repair Eye Gel", "brand": "Estee Lauder", "price": 289.0, "expiry_date": "2026-11-01", "requires_refrigeration": false}
+{"entity_type": "perishable_product", "sku": "CRM-1002", "name": "Revitalift Laser Pure Retinol", "brand": "L'Oreal Paris", "price": 109.9, "expiry_date": "2026-08-15", "requires_refrigeration": false}
+{"entity_type": "perishable_product", "sku": "CRM-1003", "name": "Pro-Collagen Cleansing Balm", "brand": "Elemis", "price": 220.0, "expiry_date": "2026-09-30", "requires_refrigeration": true}
+{"entity_type": "perishable_product", "sku": "CRM-1004", "name": "Vitamin C Glow Boost Serum", "brand": "Garnier", "price": 59.9, "expiry_date": "2026-12-01", "requires_refrigeration": false}
+{"entity_type": "perishable_product", "sku": "CRM-1005", "name": "Hydra-Essentiel Cooling Gel", "brand": "Clarins", "price": 195.0, "expiry_date": "2026-07-20", "requires_refrigeration": true}
+{"entity_type": "perishable_product", "sku": "CRM-1006", "name": "Water Sleeping Mask", "brand": "Laneige", "price": 129.0, "expiry_date": "2026-10-10", "requires_refrigeration": true}
+{"entity_type": "standard_product", "sku": "PRF-2001", "name": "Coco Mademoiselle EDP 50ml", "brand": "Chanel", "price": 580.0, "weight_kg": 0.35}
+{"entity_type": "standard_product", "sku": "PRF-2002", "name": "Miss Dior Blooming Bouquet 100ml", "brand": "Dior", "price": 540.0, "weight_kg": 0.45}
+{"entity_type": "standard_product", "sku": "PRF-2003", "name": "Libre Eau De Parfum 50ml", "brand": "Yves Saint Laurent", "price": 460.0, "weight_kg": 0.35}
+{"entity_type": "standard_product", "sku": "MKP-3001", "name": "Soft Pinch Liquid Blush", "brand": "Rare Beauty", "price": 115.0, "weight_kg": 0.06}
+{"entity_type": "standard_product", "sku": "MKP-3002", "name": "Gloss Bomb Universal Lip Luminizer", "brand": "Fenty Beauty", "price": 89.0, "weight_kg": 0.05}
+{"entity_type": "standard_product", "sku": "MKP-3003", "name": "Hollywood Flawless Filter", "brand": "Charlotte Tilbury", "price": 190.0, "weight_kg": 0.12}
+{"entity_type": "location", "location_id": "WH-CENTRAL", "name": "Central Logistics Hub", "location_type": "WAREHOUSE", "city": "Modiin"}
+{"entity_type": "location", "location_id": "STORE-TLV", "name": "Dizengoff Beauty Boutique", "location_type": "STORE", "city": "Tel Aviv"}
+{"entity_type": "location", "location_id": "STORE-HAIFA", "name": "Grand Canyon Branch", "location_type": "STORE", "city": "Haifa"}
+{"entity_type": "employee", "employee_id": "EMP-101", "name": "Liron Shefek", "role": "LOGISTICS_MANAGER", "is_active": true}
+{"entity_type": "employee", "employee_id": "EMP-102", "name": "Ruth", "role": "WAREHOUSE_WORKER", "is_active": true}
+{"entity_type": "employee", "employee_id": "EMP-103", "name": "Idan", "role": "PHARMACIST", "is_active": true}
+{"entity_type": "employee", "employee_id": "EMP-104", "name": "Noa", "role": "CASHIER", "is_active": true}
