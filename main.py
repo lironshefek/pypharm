@@ -1,4 +1,4 @@
-from models import *
+from pypharm import *
 
 def main():
     my_product = StandardProduct("rh","liron","prada",12.0,60.0)
