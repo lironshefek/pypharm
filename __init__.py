@@ -25,6 +25,8 @@ from iterators import (
 
 from context_managers import LocationMaintenance
 
+from repository import load_transfer_orders_from_jsonl
+
 __all__ = [
     # Models
     "Product",
@@ -43,4 +45,6 @@ __all__ = [
     "critical_priority_orders_pipeline",
     # Context Manager
     "LocationMaintenance",
+    # Repository
+    "load_transfer_orders_from_jsonl",
 ]
