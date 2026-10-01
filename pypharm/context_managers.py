@@ -25,16 +25,16 @@ class LocationMaintenance:
     def __enter__(self):
         """Lock the location when entering the with block."""
         self._is_locked = True
-        print(f"🔒 Location '{self.location_id}' locked for maintenance")
+        print(f"Location '{self.location_id}' locked for maintenance")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Unlock the location when exiting the with block (even on exception)."""
         self._is_locked = False
         if exc_type:
-            print(f"⚠️  Location '{self.location_id}' unlocked (exception occurred: {exc_type.__name__})")
+            print(f"Location '{self.location_id}' unlocked (exception occurred: {exc_type.__name__})")
         else:
-            print(f"🔓 Location '{self.location_id}' unlocked after maintenance")
+            print(f"Location '{self.location_id}' unlocked after maintenance")
         return False  # Don't suppress exceptions
 
     def is_locked(self) -> bool:

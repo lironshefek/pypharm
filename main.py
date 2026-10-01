@@ -26,7 +26,7 @@ def main():
     print("Both start from beginning (independent)")
 
     # 4. Generator - lazy evaluation
-    print("\nGenerator - Open orders ...")
+    print("\nGenerator - Open orders (lazy)...")
     for order in open_orders_generator(batch):
         print(f"  {order.order_id} - {order.status}")
 
@@ -54,3 +54,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
