@@ -4,7 +4,7 @@ OrderBatch + OrderIterator for traversing transfer orders.
 open_orders_generator for yielding open orders (lazy evaluation).
 """
 
-from models import TransferOrder
+from .models import TransferOrder
 
 
 class OrderIterator:

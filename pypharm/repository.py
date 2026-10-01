@@ -3,7 +3,7 @@ repository.py - Part D: Read and validate transfer orders from JSONL file.
 """
 
 import json
-from models import TransferOrder
+from .models import TransferOrder
 
 
 def load_transfer_orders_from_jsonl(filepath: str) -> list[TransferOrder]:
@@ -79,5 +79,5 @@ def load_transfer_orders_from_jsonl(filepath: str) -> list[TransferOrder]:
                 print(f"Line {line_number}: Could not create order - {e}")
                 continue
 
-    print(f"✓ Loaded {len(orders)} transfer orders")
+    print(f"Loaded {len(orders)} transfer orders")
     return orders

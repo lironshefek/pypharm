@@ -5,7 +5,7 @@ List, tuple, set, dict, deque, heapq, comprehensions, sorting, and business logi
 
 from collections import deque
 import heapq
-from models import (
+from .models import (
     Product,
     Location,
     InventoryItem,

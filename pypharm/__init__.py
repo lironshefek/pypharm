@@ -4,7 +4,7 @@ Part A-C: OOP model, data structures, processing logic
 Part D: Iterators, Generators, Context Manager
 """
 
-from models import (
+from .models import (
     Product,
     PerishableProduct,
     StandardProduct,
@@ -16,16 +16,16 @@ from models import (
     OrderActionAuthorizer,
 )
 
-from iterators import (
+from .iterators import (
     OrderBatch,
     OrderIterator,
     open_orders_generator,
     critical_priority_orders_pipeline,
 )
 
-from context_managers import LocationMaintenance
+from .context_managers import LocationMaintenance
 
-from repository import load_transfer_orders_from_jsonl
+from .repository import load_transfer_orders_from_jsonl
 
 __all__ = [
     # Models
