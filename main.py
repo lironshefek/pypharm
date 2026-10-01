@@ -2,7 +2,14 @@
 main.py - Demonstration of PyPharm system
 """
 
-from pypharm import load_transfer_orders_from_jsonl, OrderBatch, open_orders_generator, critical_priority_orders_pipeline, LocationMaintenance
+from pypharm import (
+    load_transfer_orders_from_jsonl,
+    OrderBatch,
+    open_orders_generator,
+    critical_priority_orders_pipeline,
+    LocationMaintenance,
+)
+from pypharm.business_report import generate_business_report, print_business_report
 
 
 def main():
@@ -49,11 +56,13 @@ def main():
     except ValueError:
         print("  Location unlocked even with exception")
 
+    # 8. Executive & Operational Business Report (4-Student Team Extension)
+    print("\nGenerating Executive Business Report...")
+    report_data = generate_business_report(batch)
+    print_business_report(report_data)
+
     print("\nDemo completed!\n")
 
 
 if __name__ == '__main__':
     main()
-
-
-
