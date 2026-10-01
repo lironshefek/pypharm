@@ -9,7 +9,7 @@ from pypharm import (
     critical_priority_orders_pipeline,
     LocationMaintenance,
 )
-from pypharm.business_report import generate_business_report, print_business_report
+from pypharm.reports import generate_business_report, print_business_report
 
 
 def main():
