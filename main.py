@@ -3,6 +3,7 @@ from pathlib import Path
 
 from pypharm import (
     Employee,
+    InventoryItem,
     Location,
     LocationMaintenance,
     OrderBatch,
@@ -25,6 +26,8 @@ from pypharm.processing import (
     process_shipment_manifest,
     sort_products_by_name,
     sort_products_by_price,
+    sort_inventory_items_multi_criteria,
+    validate_employees_integrity,
 )
 from pypharm.reports import generate_business_report, print_business_report
 
@@ -65,6 +68,15 @@ def main():
     print("SKU to price:", build_sku_to_price_map(products))
     print("Sorted by price:", [product.sku for product in sort_products_by_price(products)])
     print("Sorted by name:", [product.sku for product in sort_products_by_name(products)])
+
+    print("\nMulti-criteria sorting (by location, then -available_quantity):")
+    sample_items = [
+        InventoryItem(products[0], "STORE-TLV", 5, 3),
+        InventoryItem(products[1], "WH-CENTRAL", 15, 5),
+        InventoryItem(products[0], "STORE-HAIFA", 2, 3),
+    ]
+    for item in sort_inventory_items_multi_criteria(sample_items):
+        print(f"  {item.location_id}: {item.product.sku} ({item.available_quantity} available)")
 
     registry = InventoryRegistry()
     for product in products:
@@ -143,6 +155,20 @@ def main():
         print("The location was unlocked and the exception was not suppressed.")
 
     print_business_report(generate_business_report(batch))
+
+    print("\n" + "="*60)
+    print("GROUP OF 4 EXTENSION: Data Integrity & Employee Validation")
+    print("="*60)
+
+    employees_dict = {emp.employee_id: emp for emp in employees}
+    is_valid, errors = validate_employees_integrity(orders, employees_dict)
+
+    if is_valid:
+        print("All orders reference valid and active employees. System is consistent.")
+    else:
+        print("Integrity issues found:")
+        for error in errors:
+            print(f"  - {error}")
 
 
 if __name__ == "__main__":
