@@ -1,68 +1,149 @@
-"""
-main.py - Demonstration of PyPharm system
-"""
+from itertools import islice
+from pathlib import Path
 
 from pypharm import (
-    load_transfer_orders_from_jsonl,
-    OrderBatch,
-    open_orders_generator,
-    critical_priority_orders_pipeline,
+    Employee,
+    Location,
     LocationMaintenance,
+    OrderBatch,
+    Product,
+    PerishableProduct,
+    StandardProduct,
+    critical_priority_orders_pipeline,
+    load_sample_data_from_jsonl,
+    load_transfer_orders_from_jsonl,
+    open_orders_generator,
+)
+from pypharm.processing import (
+    InventoryRegistry,
+    LocationCategoryTracker,
+    OrderProcessingQueue,
+    PriorityTransferQueue,
+    build_sku_to_price_map,
+    extract_unique_brands,
+    filter_high_value_products,
+    process_shipment_manifest,
+    sort_products_by_name,
+    sort_products_by_price,
 )
 from pypharm.reports import generate_business_report, print_business_report
 
 
 def main():
-    print("\n=== PyPharm Demo ===\n")
+    data_dir = Path(__file__).resolve().parent / "data"
+    catalog_records = load_sample_data_from_jsonl(str(data_dir / "sample_data.jsonl"))
+    orders = load_transfer_orders_from_jsonl(str(data_dir / "inventory_data.jsonl"))
 
-    # 1. Load orders from JSONL file
-    print("Loading orders...")
-    orders = load_transfer_orders_from_jsonl("data/inventory_data.jsonl")
-
-    # 2. Create batch (Iterable)
-    print("\nCreating OrderBatch...")
+    products = [record for record in catalog_records if isinstance(record, Product)]
+    locations = [record for record in catalog_records if isinstance(record, Location)]
+    employees = [record for record in catalog_records if isinstance(record, Employee)]
     batch = OrderBatch(orders)
-    print(f"Batch: {batch}")
 
-    # 3. Test two independent iterators
-    print("\nTesting two independent iterators...")
-    iter1 = iter(batch)
-    iter2 = iter(batch)
-    print(f"Iterator 1 first order: {next(iter1).order_id}")
-    print(f"Iterator 2 first order: {next(iter2).order_id}")
-    print("Both start from beginning (independent)")
+    print("=== PyPharm demo ===")
+    print(
+        f"Loaded {len(products)} products, {len(locations)} locations, "
+        f"{len(employees)} employees, and {len(orders)} transfer orders."
+    )
 
-    # 4. Generator - lazy evaluation
-    print("\nGenerator - Open orders ...")
-    for order in open_orders_generator(batch):
-        print(f"  {order.order_id} - {order.status}")
+    print("\nProduct behavior through the shared Product type:")
+    polymorphic_products = [
+        next(product for product in products if isinstance(product, PerishableProduct)),
+        next(product for product in products if isinstance(product, StandardProduct)),
+    ]
+    for product in polymorphic_products:
+        print(
+            f"{product.name}: handling {product.calculate_handling_cost(1):.2f}; "
+            f"{product.get_storage_requirements()}"
+        )
 
-    # 5. Lazy Pipeline - 3-stage generator
-    print("\nLazy Pipeline - Critical orders...")
-    for summary in critical_priority_orders_pipeline(batch):
-        print(f"  {summary}")
+    if orders:
+        print(f"\nComposition: {orders[0].order_id} contains {len(orders[0])} item types.")
 
-    # 6. Context Manager - normal case
-    print("\nContext Manager - Normal case...")
-    with LocationMaintenance("STORE-TLV") as loc:
-        print(f"  Locked: {loc.location_id}")
+    print("\nCollection processing:")
+    print("High-value products:", filter_high_value_products(products, 200))
+    print("Unique brands:", sorted(extract_unique_brands(products)))
+    print("SKU to price:", build_sku_to_price_map(products))
+    print("Sorted by price:", [product.sku for product in sort_products_by_price(products)])
+    print("Sorted by name:", [product.sku for product in sort_products_by_name(products)])
 
-    # 7. Context Manager - with exception
-    print("\nContext Manager - With exception...")
+    registry = InventoryRegistry()
+    for product in products:
+        registry.add_product(product)
+    print("Expected missing product:", registry.get_product("UNKNOWN-SKU"))
+    for brand, count in registry.count_products_by_brand().items():
+        print(f"{brand}: {count} products")
+
+    manifest = process_shipment_manifest(
+        [("SHIP-1", "STORE-TLV", "CRM-1001", "PRF-2001")]
+    )
+    print("Shipment manifest:", manifest)
+
+    location_tracker = LocationCategoryTracker()
+    for location in locations:
+        location_tracker.register_location(location)
+    if locations:
+        location_tracker.register_location(locations[0], is_refrigerated=True)
+    print("Active locations:", sorted(location_tracker.active_locations))
+    print("Non-refrigerated locations:", sorted(location_tracker.get_non_refrigerated_locations()))
+
+    fifo = OrderProcessingQueue()
+    for order in orders[:3]:
+        fifo.enqueue_order(order)
+    print("FIFO order:")
+    for _ in range(3):
+        next_order = fifo.process_next_order()
+        if next_order is not None:
+            print(" ", next_order.order_id)
+    print("Empty FIFO:", fifo.process_next_order())
+
+    priority_queue = PriorityTransferQueue()
+    for order in orders[:3]:
+        priority_queue.push_order(order)
+    next_priority_order = priority_queue.pop_next_order()
+    if next_priority_order is not None:
+        print("Next priority order (smaller number is more urgent):", next_priority_order.order_id)
+
+    print("\nIndependent iterators:")
+    first_iterator = iter(batch)
+    second_iterator = iter(batch)
+    print("First iterator:", next(first_iterator).order_id)
+    print("First iterator advances:", next(first_iterator).order_id)
+    print("Second iterator still starts at:", next(second_iterator).order_id)
+
+    print("\nGenerator continuation:")
+    open_orders = open_orders_generator(batch)
     try:
-        with LocationMaintenance("WH-CENTRAL") as loc:
-            print(f"  Locked: {loc.location_id}")
-            raise ValueError("Something went wrong")
+        print("First open order:", next(open_orders).order_id)
+    except StopIteration:
+        print("No open orders.")
+    for order in open_orders:
+        print("Remaining open order:", order.order_id)
+    try:
+        next(open_orders)
+    except StopIteration:
+        print("The generator is exhausted; a new one is needed to start over.")
+    restarted_orders = open_orders_generator(batch)
+    try:
+        print("New generator starts at:", next(restarted_orders).order_id)
+    except StopIteration:
+        print("No open orders to restart.")
+
+    print("\nFirst two results from the lazy pipeline:")
+    for summary in islice(critical_priority_orders_pipeline(batch), 2):
+        print(" ", summary)
+
+    print("\nContext manager:")
+    with LocationMaintenance("STORE-TLV") as location:
+        print("Locked:", location.location_id)
+    try:
+        with LocationMaintenance("WH-CENTRAL") as location:
+            print("Locked:", location.location_id)
+            raise ValueError("Demonstration error")
     except ValueError:
-        print("  Location unlocked even with exception")
+        print("The location was unlocked and the exception was not suppressed.")
 
-    # 8. Executive & Operational Business Report (4-Student Team Extension)
-    print("\nGenerating Executive Business Report...")
-    report_data = generate_business_report(batch)
-    print_business_report(report_data)
-
-    print("\nDemo completed!\n")
+    print_business_report(generate_business_report(batch))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -25,7 +25,7 @@ from .iterators import (
 
 from .context_managers import LocationMaintenance
 
-from .repository import load_transfer_orders_from_jsonl
+from .repository import load_sample_data_from_jsonl, load_transfer_orders_from_jsonl
 
 __all__ = [
     # Models
@@ -46,5 +46,6 @@ __all__ = [
     # Context Manager
     "LocationMaintenance",
     # Repository
+    "load_sample_data_from_jsonl",
     "load_transfer_orders_from_jsonl",
 ]
