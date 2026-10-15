@@ -3,7 +3,7 @@ repository.py - Part D: Read and validate transfer orders from JSONL file.
 """
 
 import json
-from .models import Employee, Location, PerishableProduct, StandardProduct, TransferOrder
+from .models import Employee, Location, PerishableProduct, StandardProduct, TransferOrder, InventoryItem, Product
 
 
 SAMPLE_ENTITY_TYPES = {
@@ -49,6 +49,49 @@ def load_sample_data_from_jsonl(filepath: str) -> list:
                 raise ValueError(f"{filepath}:{line_number}: invalid record: {exc}") from exc
 
     return objects
+
+
+def load_inventory_items_from_jsonl(filepath: str, products_catalog: dict[str, "Product"]) -> list[InventoryItem]:
+    """Load inventory items from JSONL file using product catalog."""
+    items = []
+    seen_keys = set()
+
+    with open(filepath, encoding="utf-8") as file:
+        for line_number, line in enumerate(file, start=1):
+            line = line.strip()
+            if not line:
+                continue
+
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if not isinstance(record, dict):
+                continue
+
+            if record.get("entity_type") != "inventory_item":
+                continue
+
+            sku = record.get("sku")
+            location_id = record.get("location_id")
+            quantity = record.get("quantity")
+            min_threshold = record.get("min_threshold")
+
+            if not sku or not location_id or quantity is None or min_threshold is None:
+                continue
+
+            key = (sku, location_id)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+
+            product = products_catalog.get(sku)
+            if product:
+                item = InventoryItem(product, location_id, quantity, min_threshold)
+                items.append(item)
+
+    return items
 
 
 def load_transfer_orders_from_jsonl(filepath: str) -> list[TransferOrder]:

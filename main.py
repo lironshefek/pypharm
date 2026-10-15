@@ -13,6 +13,7 @@ from pypharm import (
     critical_priority_orders_pipeline,
     load_sample_data_from_jsonl,
     load_transfer_orders_from_jsonl,
+    load_inventory_items_from_jsonl,
     open_orders_generator,
 )
 from pypharm.processing import (
@@ -28,7 +29,9 @@ from pypharm.processing import (
     sort_products_by_price,
     sort_inventory_items_multi_criteria,
     validate_employees_integrity,
+    process_order_lifecycle,
 )
+from pypharm.models import OrderActionAuthorizer
 from pypharm.reports import generate_business_report, print_business_report
 
 
@@ -42,10 +45,13 @@ def main():
     employees = [record for record in catalog_records if isinstance(record, Employee)]
     batch = OrderBatch(orders)
 
+    products_dict = {p.sku: p for p in products}
+    inventory_items = load_inventory_items_from_jsonl(str(data_dir / "inventory_data.jsonl"), products_dict)
+
     print("=== PyPharm demo ===")
     print(
         f"Loaded {len(products)} products, {len(locations)} locations, "
-        f"{len(employees)} employees, and {len(orders)} transfer orders."
+        f"{len(employees)} employees, {len(orders)} transfer orders, and {len(inventory_items)} inventory items."
     )
 
     print("\nProduct behavior through the shared Product type:")
@@ -70,13 +76,9 @@ def main():
     print("Sorted by name:", [product.sku for product in sort_products_by_name(products)])
 
     print("\nMulti-criteria sorting (by location, then -available_quantity):")
-    sample_items = [
-        InventoryItem(products[0], "STORE-TLV", 5, 3),
-        InventoryItem(products[1], "WH-CENTRAL", 15, 5),
-        InventoryItem(products[0], "STORE-HAIFA", 2, 3),
-    ]
-    for item in sort_inventory_items_multi_criteria(sample_items):
-        print(f"  {item.location_id}: {item.product.sku} ({item.available_quantity} available)")
+    print("  From loaded inventory items:")
+    for item in sort_inventory_items_multi_criteria(inventory_items[:3]):
+        print(f"    {item.location_id}: {item.product.sku} ({item.available_quantity} available)")
 
     registry = InventoryRegistry()
     for product in products:
@@ -155,6 +157,62 @@ def main():
         print("The location was unlocked and the exception was not suppressed.")
 
     print_business_report(generate_business_report(batch))
+
+    print("\n" + "="*60)
+    print("OOP DEMONSTRATION: Authorization (check before update)")
+    print("="*60)
+
+    if orders and employees:
+        authorizer = OrderActionAuthorizer()
+        order = orders[0]
+
+        logistics = next((e for e in employees if e.role == "LOGISTICS_MANAGER"), None)
+        cashier = next((e for e in employees if e.role == "CASHIER"), None)
+
+        if logistics:
+            print(f"\nAuthorized (LOGISTICS_MANAGER) updates {order.order_id}:")
+            try:
+                authorizer.authorize_and_update_status(order, logistics, "IN_TRANSIT")
+                print(f"  ✓ Status changed to {order.status}")
+            except PermissionError as e:
+                print(f"  ✗ {e}")
+
+        if cashier:
+            print(f"\nUnauthorized (CASHIER) tries to update {order.order_id}:")
+            try:
+                authorizer.authorize_and_update_status(order, cashier, "DELIVERED")
+                print(f"  ✓ Status changed")
+            except PermissionError as e:
+                print(f"  ✗ {e}")
+
+    print("\n" + "="*60)
+    print("CREATIVITY: Order Lifecycle (reserve → dispatch → deliver)")
+    print("="*60)
+
+    if orders and products:
+        order = orders[0]
+        print(f"\nOrder {order.order_id}:")
+        for item in order.items:
+            print(f"  {item.sku}, qty={item.quantity}")
+
+        inv_source = {}
+        inv_dest = {}
+        for item in order.items:
+            product = next((p for p in products if p.sku == item.sku), None)
+            if product:
+                inv_source[item.sku] = InventoryItem(product, "WH", 50, 2)
+                inv_dest[item.sku] = InventoryItem(product, "STORE", 10, 2)
+
+        sku = order.items[0].sku
+        print(f"\n1. Before reserve: available={inv_source[sku].available_quantity}")
+        process_order_lifecycle(order, inv_source, inv_dest, "RESERVE")
+        print(f"   After reserve:  available={inv_source[sku].available_quantity}, reserved={inv_source[sku].reserved}")
+
+        process_order_lifecycle(order, inv_source, inv_dest, "DISPATCH")
+        print(f"2. After dispatch: qty={inv_source[sku].quantity}")
+
+        process_order_lifecycle(order, inv_source, inv_dest, "DELIVER")
+        print(f"3. After deliver (destination): qty={inv_dest[sku].quantity}")
 
     print("\n" + "="*60)
     print("GROUP OF 4 EXTENSION: Data Integrity & Employee Validation")
