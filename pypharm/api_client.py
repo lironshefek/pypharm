@@ -91,10 +91,31 @@ class WeatherAPIClient:
             raise WeatherDataError(str(e)) from e
 
 
+class MockWeatherClient:
+    """
+    Offline stand-in for WeatherAPIClient (same get_weather contract).
+    Returns fixed, pre-defined readings so the demo runs without network.
+    """
+
+    # (latitude, longitude) -> temperature in Celsius
+    MOCK_TEMPERATURES = {
+        (31.9103, 35.1876): 33.5,  # Modiin - hot day, DANGER
+        (32.0853, 34.7818): 24.0,  # Tel Aviv - NORMAL
+        (32.8193, 34.9927): 21.5,  # Haifa - NORMAL
+    }
+    DEFAULT_TEMPERATURE = 22.0
+
+    def get_weather(self, latitude: float, longitude: float) -> WeatherReading:
+        temperature = self.MOCK_TEMPERATURES.get((latitude, longitude), self.DEFAULT_TEMPERATURE)
+        logger.info(f"Mock weather for ({latitude}, {longitude}): {temperature}°C")
+        return WeatherReading(temperature_2m=temperature, rain=0.0)
+
+
 def get_weather_with_retry(
     latitude: float,
     longitude: float,
     config: WeatherConfig = None,
+    client=None,
 ) -> WeatherReading:
     """
     Get weather with retry logic.
@@ -113,6 +134,7 @@ def get_weather_with_retry(
         latitude: Location latitude
         longitude: Location longitude
         config: WeatherConfig instance
+        client: Object with get_weather(lat, lon); defaults to WeatherAPIClient
 
     Returns:
         WeatherReading object
@@ -124,7 +146,7 @@ def get_weather_with_retry(
         WeatherDataError: On data error (no retry)
     """
     config = config or WeatherConfig()
-    client = WeatherAPIClient(config)
+    client = client or WeatherAPIClient(config)
 
     for attempt in range(1, config.RETRY_ATTEMPTS + 1):
         try:

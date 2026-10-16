@@ -5,8 +5,9 @@ Business logic for determining required approval based on weather conditions.
 
 import logging
 
-from .api_client import get_weather_with_retry
+from .api_client import MockWeatherClient, WeatherAPIClient, get_weather_with_retry
 from .config import WeatherConfig
+from .exceptions import WeatherAPIException
 from .weather import WeatherReading
 
 logger = logging.getLogger(__name__)
@@ -21,8 +22,21 @@ class WeatherService:
     MIN_NORMAL_TEMP = 0  # Celsius
     MAX_NORMAL_TEMP = 30  # Celsius
 
-    def __init__(self, config: WeatherConfig = None):
+    # Risk level used when the weather could not be checked
+    UNKNOWN_RISK = "UNKNOWN"
+
+    def __init__(self, config: WeatherConfig = None, client=None):
+        """
+        Args:
+            config: WeatherConfig instance
+            client: Object with get_weather(lat, lon). If not given, chosen by
+                    WEATHER_MODE: WeatherAPIClient in live mode, MockWeatherClient otherwise.
+        """
         self.config = config or WeatherConfig()
+        if client is None:
+            client = WeatherAPIClient(self.config) if self.config.is_live_mode() else MockWeatherClient()
+        self.client = client
+        self.source = "live" if isinstance(client, WeatherAPIClient) else "mock"
 
     def classify_risk(self, temperature: float) -> str:
         """
@@ -50,11 +64,13 @@ class WeatherService:
             List of roles that can approve:
             - NORMAL: ["WAREHOUSE_MANAGER", "LOGISTICS_MANAGER"] (both can approve)
             - DANGER: ["LOGISTICS_MANAGER"] (only senior manager)
+            - anything else (e.g. UNKNOWN after an API failure): [] (nobody)
         """
         if risk_level == "NORMAL":
             return ["WAREHOUSE_MANAGER", "LOGISTICS_MANAGER"]
-        # DANGER
-        return ["LOGISTICS_MANAGER"]
+        if risk_level == "DANGER":
+            return ["LOGISTICS_MANAGER"]
+        return []
 
     def check_and_classify_for_order(self, location) -> dict:
         """
@@ -68,22 +84,36 @@ class WeatherService:
                 - temperature: Current temperature
                 - risk_level: "NORMAL" or "DANGER"
                 - required_roles: List of roles that can approve
-                - weather_reading: WeatherReading object
+                - weather_reading: WeatherReading object (None on failure)
+                - source: "live" or "mock"
+                - error: None, or the failure description
 
-        Raises:
-            WeatherCommunicationError: On network issues (after retries)
-            WeatherHTTPError: On HTTP errors
-            WeatherJSONError: On JSON errors
-            WeatherDataError: On data validation errors
+        On any weather failure the order must not move forward: the result has
+        risk_level UNKNOWN and no approval roles, so the order stays PENDING.
         """
         logger.info(f"Checking weather for {location.city}")
 
-        # Get weather data from API (with retry for transient failures only)
-        weather_reading = get_weather_with_retry(
-            location.latitude,
-            location.longitude,
-            self.config
-        )
+        # Get weather data (with retry for transient failures only)
+        try:
+            weather_reading = get_weather_with_retry(
+                location.latitude,
+                location.longitude,
+                self.config,
+                self.client,
+            )
+        except WeatherAPIException as e:
+            logger.error(
+                f"Weather check failed for {location.city} ({type(e).__name__}); "
+                f"shipment cannot be approved, order stays PENDING"
+            )
+            return {
+                "temperature": None,
+                "risk_level": self.UNKNOWN_RISK,
+                "required_roles": [],
+                "weather_reading": None,
+                "source": self.source,
+                "error": f"{type(e).__name__}: {e}",
+            }
 
         # Classify risk
         risk_level = self.classify_risk(weather_reading.temperature_2m)
@@ -98,6 +128,8 @@ class WeatherService:
             "risk_level": risk_level,
             "required_roles": required_roles,
             "weather_reading": weather_reading,
+            "source": self.source,
+            "error": None,
         }
 
     def can_approve(self, employee_role: str, risk_level: str) -> bool:
