@@ -15,6 +15,8 @@ from pypharm import (
     load_transfer_orders_from_jsonl,
     load_inventory_items_from_jsonl,
     open_orders_generator,
+    WeatherConfig,
+    WeatherService,
 )
 from pypharm.processing import (
     InventoryRegistry,
@@ -227,6 +229,41 @@ def main():
         print("Integrity issues found:")
         for error in errors:
             print(f"  - {error}")
+
+    print("\n" + "="*60)
+    print("STAGE 2: Weather API Integration")
+    print("="*60)
+
+    config = WeatherConfig()
+    is_live = config.is_live_mode()
+    mode_str = "LIVE (real API)" if is_live else "MOCK (simulated)"
+    print(f"\nMode: {mode_str}")
+
+    if locations and not is_live:
+        service = WeatherService(config)
+        print("\n✨ Weather Check Demo (Simulated Data):")
+        for location in locations[:2]:
+            print(f"\n📍 {location.name} ({location.city}):")
+            print(f"   Coordinates: ({location.latitude}, {location.longitude})")
+            try:
+                result = service.check_and_classify_for_order(location)
+                print(f"   Temperature: {result['temperature']}°C (simulated)")
+                print(f"   Risk Level: {result['risk_level']}")
+                print(f"   Approval Roles: {', '.join(result['required_roles'])}")
+            except Exception as e:
+                print(f"   Note: {type(e).__name__} (expected in mock mode without network)")
+    elif is_live and locations:
+        service = WeatherService(config)
+        print("\n🌍 Weather Check Demo (Real API):")
+        try:
+            location = locations[0]
+            print(f"\n📍 Checking {location.name} ({location.city})...")
+            result = service.check_and_classify_for_order(location)
+            print(f"   ✅ Temperature: {result['temperature']}°C")
+            print(f"   Risk Level: {result['risk_level']}")
+            print(f"   Approval Roles: {', '.join(result['required_roles'])}")
+        except Exception as e:
+            print(f"   ⚠️  {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
