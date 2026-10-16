@@ -1,18 +1,32 @@
 """
 api_client.py - Open-Meteo Weather API integration.
-Simple HTTP client with retry logic.
+Handles HTTP communication with proper error handling and retry logic.
 """
 
+import logging
 import requests
 import time
+
+from .config import WeatherConfig
+from .exceptions import (
+    WeatherCommunicationError,
+    WeatherHTTPError,
+    WeatherJSONError,
+    WeatherDataError,
+)
+from .weather import WeatherReading
+
+logger = logging.getLogger(__name__)
 
 
 class WeatherAPIClient:
     """Client for Open-Meteo weather API."""
 
-    BASE_URL = "https://api.open-meteo.com/v1/forecast"
+    def __init__(self, config: WeatherConfig = None):
+        self.config = config or WeatherConfig()
+        self.base_url = self.config.API_URL
 
-    def get_weather(self, latitude: float, longitude: float) -> dict:
+    def get_weather(self, latitude: float, longitude: float) -> WeatherReading:
         """
         Get current weather for location.
 
@@ -21,10 +35,13 @@ class WeatherAPIClient:
             longitude: Location longitude
 
         Returns:
-            Dict with temperature_2m (and other fields)
+            WeatherReading object
 
         Raises:
-            Exception: On network error, invalid response, or missing field
+            WeatherCommunicationError: On timeout or connection failure
+            WeatherHTTPError: On HTTP error (4xx, 5xx)
+            WeatherJSONError: On JSON parsing failure
+            WeatherDataError: On missing/invalid fields
         """
         params = {
             "latitude": latitude,
@@ -32,67 +49,103 @@ class WeatherAPIClient:
             "current": "temperature_2m,rain,weather_code",
         }
 
-        # Send request with 5 second timeout
-        try:
-            response = requests.get(self.BASE_URL, params=params, timeout=5)
-        except requests.Timeout:
-            raise Exception("Weather API timeout")
-        except requests.ConnectionError:
-            raise Exception("Network connection failed")
+        logger.debug(f"Requesting weather for ({latitude}, {longitude})")
 
-        # Check HTTP status using raise_for_status()
+        # Send request
+        try:
+            response = requests.get(
+                self.base_url,
+                params=params,
+                timeout=self.config.TIMEOUT
+            )
+        except requests.Timeout as e:
+            logger.error("Weather API timeout")
+            raise WeatherCommunicationError("Weather API timeout") from e
+        except requests.ConnectionError as e:
+            logger.error("Network connection failed")
+            raise WeatherCommunicationError("Network connection failed") from e
+
+        # Check HTTP status
         try:
             response.raise_for_status()
-        except requests.HTTPError:
-            raise Exception(f"Weather API error: HTTP {response.status_code}")
+        except requests.HTTPError as e:
+            logger.error(f"HTTP error: {response.status_code}")
+            raise WeatherHTTPError(f"HTTP {response.status_code}") from e
 
         # Parse JSON
         try:
             data = response.json()
-        except Exception:
-            raise Exception("Invalid JSON from weather API")
+        except Exception as e:
+            logger.error("Invalid JSON from weather API")
+            raise WeatherJSONError("Invalid JSON from weather API") from e
 
-        # Check for required field
-        if "current" not in data or "temperature_2m" not in data["current"]:
-            raise Exception("Missing temperature_2m in API response")
+        # Create WeatherReading (validates data)
+        try:
+            if "current" not in data:
+                raise KeyError("Missing 'current' section")
+            weather = WeatherReading.from_api_response(data["current"])
+            logger.info(f"✅ Weather: {weather.temperature_2m}°C")
+            return weather
+        except (KeyError, ValueError) as e:
+            logger.error(f"Data validation failed: {e}")
+            raise WeatherDataError(str(e)) from e
 
-        return data["current"]
 
-
-def get_weather_with_retry(latitude: float, longitude: float, max_attempts: int = 3) -> dict:
+def get_weather_with_retry(
+    latitude: float,
+    longitude: float,
+    config: WeatherConfig = None,
+) -> WeatherReading:
     """
-    Get weather with retries.
+    Get weather with retry logic.
 
-    Retries on: Timeout, ConnectionError, Invalid JSON
-    Does NOT retry on: HTTP 400 errors, Missing fields
+    Retries ONLY on:
+    - Timeout
+    - ConnectionError
+
+    Does NOT retry on:
+    - HTTP 4xx (including 401, 403)
+    - HTTP 5xx
+    - JSON parsing errors (malformed response)
+    - Data validation errors (missing fields)
 
     Args:
         latitude: Location latitude
         longitude: Location longitude
-        max_attempts: Number of attempts (default: 3)
+        config: WeatherConfig instance
 
     Returns:
-        Dict with weather data
+        WeatherReading object
 
     Raises:
-        Exception: If all retries fail or permanent error
+        WeatherCommunicationError: If all retries fail (network issues only)
+        WeatherHTTPError: On HTTP error (no retry)
+        WeatherJSONError: On JSON error (no retry)
+        WeatherDataError: On data error (no retry)
     """
-    client = WeatherAPIClient()
+    config = config or WeatherConfig()
+    client = WeatherAPIClient(config)
 
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(1, config.RETRY_ATTEMPTS + 1):
         try:
             return client.get_weather(latitude, longitude)
-        except Exception as e:
-            error_msg = str(e)
 
-            # Permanent errors - don't retry
-            if "HTTP 400" in error_msg or "Missing" in error_msg:
-                raise e
-
-            # Transient errors - retry
-            if attempt < max_attempts:
-                print(f"Attempt {attempt} failed, retrying in 1s...")
-                time.sleep(1)
+        except WeatherCommunicationError as e:
+            # Transient error - retry
+            if attempt < config.RETRY_ATTEMPTS:
+                logger.warning(
+                    f"Attempt {attempt} failed (communication), "
+                    f"retrying in {config.RETRY_DELAY}s..."
+                )
+                time.sleep(config.RETRY_DELAY)
             else:
-                print(f"Failed after {max_attempts} attempts")
+                logger.error(f"All {config.RETRY_ATTEMPTS} attempts failed")
                 raise e
+
+        except (WeatherHTTPError, WeatherJSONError, WeatherDataError) as e:
+            # Permanent errors - no retry
+            logger.error(f"Permanent error (no retry): {type(e).__name__}")
+            raise e
+
+    # Should not reach here
+    raise WeatherCommunicationError("Unexpected error in retry logic")

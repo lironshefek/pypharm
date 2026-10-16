@@ -26,6 +26,15 @@ from .iterators import (
 from .context_managers import LocationMaintenance
 
 from .repository import load_sample_data_from_jsonl, load_transfer_orders_from_jsonl, load_inventory_items_from_jsonl
+from .config import WeatherConfig
+from .exceptions import (
+    WeatherAPIException,
+    WeatherCommunicationError,
+    WeatherHTTPError,
+    WeatherJSONError,
+    WeatherDataError,
+)
+from .weather import WeatherReading
 from .api_client import WeatherAPIClient, get_weather_with_retry
 from .services import WeatherService
 
@@ -52,6 +61,13 @@ __all__ = [
     "load_transfer_orders_from_jsonl",
     "load_inventory_items_from_jsonl",
     # API Client (Stage 2)
+    "WeatherConfig",
+    "WeatherAPIException",
+    "WeatherCommunicationError",
+    "WeatherHTTPError",
+    "WeatherJSONError",
+    "WeatherDataError",
+    "WeatherReading",
     "WeatherAPIClient",
     "get_weather_with_retry",
     "WeatherService",
