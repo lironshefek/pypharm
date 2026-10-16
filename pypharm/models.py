@@ -396,7 +396,7 @@ class TransferOrder:
 
 
 class Employee:
-    VALID_ROLES = {"WAREHOUSE_WORKER", "LOGISTICS_MANAGER", "PHARMACIST", "CASHIER"}
+    VALID_ROLES = {"WAREHOUSE_WORKER", "WAREHOUSE_MANAGER", "LOGISTICS_MANAGER", "PHARMACIST", "CASHIER"}
 
     def __init__(self, employee_id: str, name: str, role: str, is_active: bool = True):
         self.employee_id = _require_non_empty_str(employee_id, "Employee ID")
@@ -449,7 +449,7 @@ class Employee:
 
 class OrderActionAuthorizer:
     DEFAULT_PERMISSIONS = {
-        "UPDATE_STATUS": {"WAREHOUSE_WORKER", "LOGISTICS_MANAGER"},
+        "UPDATE_STATUS": {"WAREHOUSE_WORKER", "WAREHOUSE_MANAGER", "LOGISTICS_MANAGER"},
         "CANCEL_ORDER": {"LOGISTICS_MANAGER"},
     }
 

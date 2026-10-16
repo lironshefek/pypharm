@@ -15,5 +15,6 @@
 {"entity_type": "location", "location_id": "STORE-HAIFA", "name": "Grand Canyon Branch", "location_type": "STORE", "city": "Haifa"}
 {"entity_type": "employee", "employee_id": "EMP-101", "name": "Aya", "role": "LOGISTICS_MANAGER", "is_active": true}
 {"entity_type": "employee", "employee_id": "EMP-102", "name": "moshe", "role": "WAREHOUSE_WORKER", "is_active": true}
+{"entity_type": "employee", "employee_id": "EMP-105", "name": "noa", "role": "WAREHOUSE_MANAGER", "is_active": true}
 {"entity_type": "employee", "employee_id": "EMP-103", "name": "shlomit", "role": "PHARMACIST", "is_active": true}
 {"entity_type": "employee", "employee_id": "EMP-104", "name": "rotem", "role": "CASHIER", "is_active": true}

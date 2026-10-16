@@ -82,7 +82,7 @@
   מכילה רשימה של פריטי ניוד (`TransferOrderItem`) ומקושרת לעובד מטפל.
 
 * **עובד (`Employee`):**  
-  בעל תפקיד מוגדר ברשת (מנהל לוגיסטיקה, עובד מחסן, רוקח, קופאי).
+  בעל תפקיד מוגדר ברשת (מנהל לוגיסטיקה, מנהל מחסן, עובד מחסן, רוקח, קופאי).
 
 * **רכיב הרשאות (`OrderActionAuthorizer`):**  
   מפקח על הפעולות שכל עובד מורשה לבצע.
@@ -141,7 +141,7 @@ pypharm/  (repository root)
 
 ### הישויות החדשות שהתווספו (`pypharm/models.py`)
 1. **`Employee`:** מייצגת עובד ברשת.
- מכילה מזהה, שם, תפקיד (`LOGISTICS_MANAGER`, `WAREHOUSE_WORKER`, `PHARMACIST`, `CASHIER`) וסטטוס פעילות (`is_active`).
+ מכילה מזהה, שם, תפקיד (`LOGISTICS_MANAGER`, `WAREHOUSE_MANAGER`, `WAREHOUSE_WORKER`, `PHARMACIST`, `CASHIER`) וסטטוס פעילות (`is_active`).
 
 2. **`OrderActionAuthorizer`:** מנגנון אבטחה והרשאות שמנהל לוגיקת הרשאות לפי תפקיד העובד (RBAC), מאשר שינויי סטטוס בהזמנות ניוד, ומתעד כל פעולה ביומן ביקורת פנימי (`action_history`).
 
@@ -228,7 +228,7 @@ pypharm/  (repository root)
 ## 6. מקור הנתונים ותהליך הטעינה
 
 הנתונים הסינתטיים נמצאים בשני קובצי `JSONL` בתיקיית `data/`:
-1. `data/sample_data.jsonl` מכיל 19 רשומות של מוצרים, מיקומים ועובדים. `load_sample_data_from_jsonl` קוראת כל שורה בנפרד, ממירה אותה בעזרת `json.loads` ל-`dict`, ואז לאובייקט המתאים דרך `from_dict`.
+1. `data/sample_data.jsonl` מכיל 20 רשומות של מוצרים, מיקומים ועובדים. `load_sample_data_from_jsonl` קוראת כל שורה בנפרד, ממירה אותה בעזרת `json.loads` ל-`dict`, ואז לאובייקט המתאים דרך `from_dict`.
 2. `data/inventory_data.jsonl` מכיל 7 רשומות מלאי ו-5 הזמנות ניוד. `load_transfer_orders_from_jsonl` קוראת אותו בהדרגה, טוענת את ההזמנות באמצעות `TransferOrder.from_dict`, ומדלגת על רשומות מלאי.
 
 ### תהליך הטעינה וההמרה
