@@ -12,6 +12,11 @@ license = {text = "MIT"}
 dependencies = [
     "requests>=2.31.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
 keywords = [
     "pharmacy",
     "inventory management",
