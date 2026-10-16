@@ -26,6 +26,7 @@ from .iterators import (
 from .context_managers import LocationMaintenance
 
 from .repository import load_sample_data_from_jsonl, load_transfer_orders_from_jsonl, load_inventory_items_from_jsonl
+from .api_client import WeatherAPIClient, get_weather_with_retry
 
 __all__ = [
     # Models
@@ -48,4 +49,8 @@ __all__ = [
     # Repository
     "load_sample_data_from_jsonl",
     "load_transfer_orders_from_jsonl",
+    "load_inventory_items_from_jsonl",
+    # API Client (Stage 2)
+    "WeatherAPIClient",
+    "get_weather_with_retry",
 ]

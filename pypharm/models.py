@@ -122,10 +122,17 @@ class StandardProduct(Product):
 class Location:
     VALID_LOCATIONS = {"STORE", "WAREHOUSE"}
 
-    def __init__(self, location_id: str, name: str, location_type: str, city: str):
+    def __init__(self, location_id: str, name: str, location_type: str, city: str, latitude: float, longitude: float):
         self.location_id = _require_non_empty_str(location_id, "Location ID")
         self.name = _require_non_empty_str(name, "Name")
         self.city = _require_non_empty_str(city, "City")
+
+        if not isinstance(latitude, (int, float)) or not (-90 <= latitude <= 90):
+            raise ValueError(f"Latitude must be between -90 and 90, got: {latitude}")
+        if not isinstance(longitude, (int, float)) or not (-180 <= longitude <= 180):
+            raise ValueError(f"Longitude must be between -180 and 180, got: {longitude}")
+        self.latitude = float(latitude)
+        self.longitude = float(longitude)
 
         clean_type = _require_non_empty_str(location_type, "Location type").upper()
         if clean_type not in self.VALID_LOCATIONS:
@@ -139,6 +146,8 @@ class Location:
             name=data["name"],
             location_type=data["location_type"],
             city=data["city"],
+            latitude=data["latitude"],
+            longitude=data["longitude"],
         )
 
     def __str__(self) -> str:
