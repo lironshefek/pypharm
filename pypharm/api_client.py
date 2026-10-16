@@ -40,8 +40,10 @@ class WeatherAPIClient:
         except requests.ConnectionError:
             raise Exception("Network connection failed")
 
-        # Check HTTP status
-        if response.status_code != 200:
+        # Check HTTP status using raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError:
             raise Exception(f"Weather API error: HTTP {response.status_code}")
 
         # Parse JSON
