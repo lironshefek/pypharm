@@ -61,3 +61,25 @@ def test_weather_failure_does_not_notify_observers(location):
 
     assert result["risk_level"] == "UNKNOWN"
     assert observer.update.call_count == 0
+
+
+def test_one_danger_event_reaches_both_default_observers(location, caplog):
+    # Default service wiring: AuditLogObserver + IntegrityAlertObserver
+    service = WeatherService(
+        client=Mock(get_weather=Mock(return_value=WeatherReading(temperature_2m=35)))
+    )
+
+    with caplog.at_level("WARNING", logger="pypharm.observers"):
+        service.check_and_classify_for_order(
+            location, make_order("EMP-999"), employees_catalog={}
+        )
+
+    # Reactor 1: the audit log recorded the approval request
+    audit_records = [r for r in caplog.records if "Approval required" in r.getMessage()]
+    assert len(audit_records) == 1
+    assert "order=ORD-TEST" in audit_records[0].getMessage()
+    assert "risk=DANGER" in audit_records[0].getMessage()
+
+    # Reactor 2: the integrity check flagged the unknown employee
+    assert len(service.integrity_observer.alerts) == 1
+    assert "EMP-999" in service.integrity_observer.alerts[0]
