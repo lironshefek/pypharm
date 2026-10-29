@@ -298,9 +298,132 @@ pypharm/  (repository root)
 * אין צורך בהתקנת חבילות חיצוניות (שימוש בספרייה הסטנדרטית בלבד).
 
 ### הוראות הרצה
-1.. שבטו את המאגר (Clone) או חלצו את קובצי הפרויקט.
+1. שבטו את המאגר (Clone) או חלצו את קובצי הפרויקט.
 2. פתחו את הטרמינל בשורש הפרויקט (`project_root`).
 3. הריצו את תרחיש ההדגמה המלא:
 
 ```bash
 python main.py
+```
+
+---
+
+## 10. שלב 2 - שירות חיצוני, תבניות תכנון ובדיקות
+
+### מה נוסף בשלב 2?
+
+בשלב 2 הורחב תהליך אישור משלוחים כדי להתחשב במזג האוויר בסניף היעד. **הערך העסקי:** שמירת מוצרים רגישים לטמפרטורה — בתנאים קיצוניים (טמפרטורה מתחת ל-0°C או מעל 30°C), רק מנהל לוגיסטיקה בעל סמכות מלאה יכול לאשר משלוח, בעוד שבתנאים נורמליים גם מנהל מחסן רשאי.
+
+**השירות החיצוני:** [Open-Meteo API](https://open-meteo.com/en/docs) (בחינם, ללא מפתח) מסיף נתוני טמפרטורה בזמן אמת עבור כל סניף. **השימוש במידע:** הטמפרטורה משפיעה על דרישות התפקיד (רול) הנדרשות לאישור. **הטיפול בכשל:** אם חיבור ה-API נכשל או מחזיר נתונים לא תקינים, ההזמנה נשארת בסטטוס `PENDING` ולא מתקדמת עד שהשירות יוחזר לשירות — זה מנע משגיאות כתוצאה מנתונים אמינות.
+
+### איך מריצים שלב 2?
+
+**דרישות:**
+* Python 3.10+
+* ספרייה `requests` (התקן: `pip install requests`)
+
+**הרצה (ללא רשת — mock mode, ברירת מחדל):**
+```bash
+python main.py
+```
+יודפסו טמפרטורות קבועות עבור Modiin (33.5°C), Tel Aviv (24°C), Haifa (21.5°C).
+
+**הרצה עם API אמיתי (חיבור לרשת):**
+```bash
+WEATHER_MODE=live python main.py
+```
+יחזור נתונים עדכניים מ-Open-Meteo.
+
+**הרצת בדיקות:**
+```bash
+# כל בדיקות השלב
+pytest tests/test_weather_api.py tests/test_weather_services.py tests/test_weather_observers.py tests/test_factories.py -v
+
+# רק בדיקות ספציפיות
+pytest tests/test_weather_api.py -v              # WeatherAPIClient + retry logic
+pytest tests/test_weather_observers.py -v        # Observer pattern
+pytest tests/test_factories.py -v                # ProductFactory
+```
+
+### ארגון הקוד — מודולים חדשים
+
+**ליבה של שלב 2:**
+* **`api_client.py`:** `WeatherAPIClient` (GET request ל-Open-Meteo), `MockWeatherClient` (offline mode), `get_weather_with_retry()` (3 ניסיונות עם 1s delay)
+* **`config.py`:** `WeatherConfig` (טוען WEATHER_MODE, TIMEOUT, RETRY_ATTEMPTS משתני סביבה)
+* **`weather.py`:** `WeatherReading` (immutable object עם temperature_2m, rain, weather_code; validates טמפרטורה)
+* **`exceptions.py`:** 4 סוגי חריגות — `WeatherCommunicationError` (network), `WeatherHTTPError` (4xx/5xx), `WeatherJSONError` (parsing), `WeatherDataError` (validation)
+* **`services.py`:** `WeatherService` (classify_risk, get_required_roles, check_and_classify_for_order; משתמשת בObservers)
+
+**תבניות:**
+* **`factories.py`:** `ProductFactory` — מרכזת החלטה איזה סוג מוצר ליצור לפי `entity_type` מ-JSON (PerishableProduct או StandardProduct). `repository.py` משתמשת בה כדי להימנע משכפול if/elif.
+* **`observers.py`:** `ApprovalEventPublisher` (subscribe/publish), `AuditLogObserver` (רושם ללוג), `IntegrityAlertObserver` (בודק תקינות עובדים)
+
+**בדיקות:**
+```
+tests/
+├── test_weather_api.py          # 14 בדיקות (success, timeout, HTTP error, JSON, retry logic)
+├── test_weather_services.py     # 11 בדיקות (classify_risk, get_required_roles, integration)
+├── test_weather_observers.py    # 4 בדיקות (observer pattern, danger events, integrity)
+└── test_factories.py            # 4 בדיקות (ProductFactory, unknown type, JSONL loading)
+```
+
+### החלטות תכנון מרכזיות
+
+**1. בחירת Open-Meteo API:**
+* בחינם ללא מפתח (מתאים לפרויקט חינוכי)
+* API פשוטה (GET עם latitude/longitude)
+* קל לsimulate offline עם MockWeatherClient
+
+**2. Retry Logic (3 ניסיונות, 1 שניה):**
+* **Retry על:** Timeout, ConnectionError (בעיות זמניות)
+* **ללא retry על:** HTTP 4xx/5xx (בעיות קבע), JSON invalid, data validation (לא יעזור לנסות שוב)
+
+**3. Factory Pattern:**
+קודם: `load_sample_data_from_jsonl` היתה צריכה לדעת איזה סוג מוצר לחזר לכל רשומה. עכשיו: `ProductFactory` מרכזת זאת. **יתרונות:** הוספת סוג מוצר חדש דורשת שינוי בנקודה אחת בלבד (Factory._PRODUCT_TYPES); `repository.py` נשאר ללא שינוי. **בדיקה:** קל לבדוק את הFactory בעצמאות.
+
+**4. Observer Pattern:**
+קודם: `WeatherService` היתה צריכה לדעת איזה observers לקרוא (logger, integrity checks). עכשיו: `WeatherService` יוצרת `ApprovalEventPublisher` ומדיווחת רק על `DANGER` events. **יתרונות:** הפרדת דאגות (Service לא תלוי בlogging implementation), קל להוסיף observer חדש, קל לבדוק עם Mock observers.
+
+**5. Dependency Injection (DI):**
+* `WeatherService` מקבל `client` בבנאי (default: WeatherAPIClient או MockWeatherClient)
+* לא יוצר את ה-client בתוכו
+* **יתרון בדיקה:** יכול להעביר MockWeatherClient בבדיקה ללא network
+* **יתרון הרחבה:** יכול להחליף client בעתיד בלא לשנות WeatherService
+
+**6. בדיקות (33 בדיקות, 100% passing):**
+* יחידה: WeatherAPIClient, WeatherReading, ProductFactory (מבודדות עם mocks)
+* Integration: WeatherService עם תוך שימוש ב-MockWeatherClient
+* Edge cases: timeout, invalid JSON, missing fields, unknown product type, observer notifications
+
+### הוכחות שהמערכת עובדת
+
+**תוצאות בדיקות:**
+```
+test_weather_api.py          14 passed
+test_weather_services.py     11 passed
+test_weather_observers.py     4 passed
+test_factories.py             4 passed
+─────────────────────────────
+סה״כ:                        33 passed, 0 failed
+```
+
+**דוגמה הרצה (mock mode):**
+```
+📍 Modiin (Modiin):
+   Coordinates: (31.9103, 35.1876)
+   Temperature: 33.5°C (mock data)
+   Risk Level: DANGER
+   Approval Roles: ['LOGISTICS_MANAGER']
+   
+📍 Tel Aviv (Tel Aviv):
+   Coordinates: (32.0853, 34.7818)
+   Temperature: 24.0°C (mock data)
+   Risk Level: NORMAL
+   Approval Roles: ['WAREHOUSE_MANAGER', 'LOGISTICS_MANAGER']
+```
+
+**Git Commits (ראשי):**
+* `4793e2b` Stage 2: Complete overhaul — exception handling, config, WeatherAPIClient
+* `b16a61d` Add 25 comprehensive tests — API, Services, retry logic
+* `e9bcf44` add factories file — ProductFactory pattern
+* `68452f5` add observers file and edit README — Observer pattern, Observer tests
