@@ -8,6 +8,12 @@ import logging
 from .api_client import MockWeatherClient, WeatherAPIClient, get_weather_with_retry
 from .config import WeatherConfig
 from .exceptions import WeatherAPIException
+from .observers import (
+    ApprovalEventPublisher,
+    ApprovalRequiredEvent,
+    AuditLogObserver,
+    IntegrityAlertObserver,
+)
 from .weather import WeatherReading
 
 logger = logging.getLogger(__name__)
@@ -25,7 +31,7 @@ class WeatherService:
     # Risk level used when the weather could not be checked
     UNKNOWN_RISK = "UNKNOWN"
 
-    def __init__(self, config: WeatherConfig = None, client=None):
+    def __init__(self, config: WeatherConfig = None, client=None, observers=None):
         """
         Args:
             config: WeatherConfig instance
@@ -37,6 +43,11 @@ class WeatherService:
             client = WeatherAPIClient(self.config) if self.config.is_live_mode() else MockWeatherClient()
         self.client = client
         self.source = "live" if isinstance(client, WeatherAPIClient) else "mock"
+        self.integrity_observer = IntegrityAlertObserver()
+        default_observers = [AuditLogObserver(), self.integrity_observer]
+        self.approval_events = ApprovalEventPublisher(
+            default_observers if observers is None else observers
+        )
 
     def classify_risk(self, temperature: float) -> str:
         """
@@ -72,7 +83,7 @@ class WeatherService:
             return ["LOGISTICS_MANAGER"]
         return []
 
-    def check_and_classify_for_order(self, location) -> dict:
+    def check_and_classify_for_order(self, location, order=None, employees_catalog=None) -> dict:
         """
         Check weather at destination and determine required approval.
 
@@ -118,6 +129,20 @@ class WeatherService:
         # Classify risk
         risk_level = self.classify_risk(weather_reading.temperature_2m)
         logger.info(f"Weather risk: {risk_level}")
+
+        # Only dangerous weather raises an approval event and notifies observers.
+        if risk_level == "DANGER":
+            if employees_catalog is not None:
+                self.integrity_observer.employees_catalog = employees_catalog
+            self.approval_events.publish(
+                ApprovalRequiredEvent(
+                    order_id=getattr(order, "order_id", None),
+                    temperature=weather_reading.temperature_2m,
+                    risk_level=risk_level,
+                    employee_id=getattr(order, "handled_by_employee_id", None),
+                    order=order,
+                )
+            )
 
         # Get required roles
         required_roles = self.get_required_roles(risk_level)

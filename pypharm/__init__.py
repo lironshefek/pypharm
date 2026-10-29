@@ -38,6 +38,12 @@ from .exceptions import (
 from .weather import WeatherReading
 from .api_client import WeatherAPIClient, get_weather_with_retry
 from .services import WeatherService
+from .observers import (
+    ApprovalEventPublisher,
+    ApprovalRequiredEvent,
+    AuditLogObserver,
+    IntegrityAlertObserver,
+)
 
 __all__ = [
     # Models
@@ -73,4 +79,8 @@ __all__ = [
     "WeatherAPIClient",
     "get_weather_with_retry",
     "WeatherService",
+    "ApprovalEventPublisher",
+    "ApprovalRequiredEvent",
+    "AuditLogObserver",
+    "IntegrityAlertObserver",
 ]

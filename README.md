@@ -113,6 +113,8 @@ pypharm/  (repository root)
 │
 ├── pypharm/                           # חבילת Python (package)
 │   ├── __init__.py                    # הגדרת החבילה, ייצוא כל המודולים
+│   ├── factories.py                    # ProductFactory ליצירת סוג המוצר לפי רשומת JSONL
+│   ├── observers.py                    # אירועי אישור בסיכון מזג אוויר גבוה ומאזינים
 │   ├── models.py                      # מחלקות OOP, הרכבה, הורשה, פולימורפיזם, הרשאות ועובדים
 │   ├── processing.py                  # מבני נתונים, תורים, Comprehensions, לוגיקה עסקית ומיון
 │   ├── iterators.py                   # איטרטורים מותאמים, גנרטורים ו-Lazy Pipeline
@@ -162,6 +164,18 @@ pypharm/  (repository root)
 * הזמנות ניוד המשויכות לעובד שלא קיים בקטלוג 
 (למשל מזהה פיקטיבי `EMP-999`).
 * הזמנות ניוד המשויכות לעובד שאינו פעיל (`is_active = False`).
+
+### תבנית Factory ליצירת מוצרים
+`ProductFactory` שבמודול `factories.py` מקבלת רשומת מוצר מה־JSONL ובוחרת את מחלקת המוצר לפי `entity_type`: ערך `perishable_product` יוצר `PerishableProduct`, וערך `standard_product` יוצר `StandardProduct`. `repository.py` נשאר אחראי לקריאת הקובץ ולבדיקת הרשומות; ה־Factory מרכזת את ההחלטה איזה סוג מוצר ליצור. כך הוספת סוג מוצר חדש דורשת לעדכן את נקודת הבחירה ב־Factory, לצד הוספת המחלקה, שדותיה והבדיקות המתאימות.
+
+### Observer לבקשות אישור בסיכון מזג אוויר גבוה
+לאחר בדיקת מזג אוויר מוצלחת, `WeatherService` מפרסם אירוע `ApprovalRequiredEvent` רק כאשר רמת הסיכון היא `DANGER` (טמפרטורה מתחת ל־0° או מעל 30°). מזג אוויר תקין וכשל בבדיקת השירות אינם מפעילים את המאזינים.
+
+* `AuditLogObserver` רושם בלוג את מזהה ההזמנה, הטמפרטורה, רמת הסיכון והעובד המשויך.
+* `IntegrityAlertObserver` בודק את העובד המשויך להזמנה באמצעות `validate_employees_integrity`; עובד חסר או לא פעיל נרשם כהתראת תקינות.
+* כדי לבצע את בדיקת העובד, יש להעביר ל־`WeatherService.check_and_classify_for_order(location, order, employees_catalog)` את ההזמנה ואת קטלוג העובדים. אם לא נמסרת הזמנה, אירוע הסיכון עדיין מתועד, אך בדיקת קשר העובד אינה יכולה להתבצע.
+
+ה־Observer מתעד ומתריע; הוא אינו מאשר או דוחה את ההזמנה ואינו משנה את הסטטוס שלה. החלטת האישור נשארת לפי כללי התפקידים הקיימים ב־`WeatherService`.
 
 ---
 
