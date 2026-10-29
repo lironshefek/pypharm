@@ -1,5 +1,5 @@
 """
-tests/test_weather_services.py - Weather service tests.
+tests/test_services.py - Weather service tests.
 Tests for risk classification and approval role determination.
 """
 

@@ -1,5 +1,5 @@
 """
-tests/test_weather_api.py - Weather API client tests.
+tests/test_api_client.py - Weather API client tests.
 Tests for exception handling, HTTP status validation, and retry logic.
 """
 
