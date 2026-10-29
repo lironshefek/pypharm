@@ -126,13 +126,28 @@ class TestRetryLogic:
             }
             return response
 
-        with mock.patch("requests.get", side_effect=mock_get):
-            config = WeatherConfig()
-            config.RETRY_DELAY = 0  # No sleep in tests
-            weather = get_weather_with_retry(32.0853, 34.7818, config)
+        with mock.patch("requests.get", side_effect=mock_get),                 mock.patch("pypharm.api_client.time.sleep") as mock_sleep:
+            weather = get_weather_with_retry(32.0853, 34.7818)
 
         assert len(attempts) == 2
         assert weather.temperature_2m == 15.0
+        # One wait between the failed attempt and the successful one
+        mock_sleep.assert_called_once_with(WeatherConfig.RETRY_DELAY)
+
+    def test_retry_stops_after_three_attempts(self):
+        """Test that a persistent Timeout stops after 3 attempts in total."""
+        attempts = []
+
+        def mock_get(*args, **kwargs):
+            attempts.append(1)
+            raise requests.Timeout()
+
+        with mock.patch("requests.get", side_effect=mock_get),                 mock.patch("pypharm.api_client.time.sleep") as mock_sleep:
+            with pytest.raises(WeatherCommunicationError):
+                get_weather_with_retry(32.0853, 34.7818)
+
+        assert len(attempts) == 3
+        assert mock_sleep.call_count == 2  # waits only between attempts
 
     def test_no_retry_on_http_error(self):
         """Test NO retry on HTTP 401/403/500 errors."""

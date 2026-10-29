@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -56,7 +56,8 @@ def test_weather_failure_does_not_notify_observers(location):
         observers=[observer],
     )
 
-    result = service.check_and_classify_for_order(location, make_order())
+    with patch("pypharm.api_client.time.sleep"):
+        result = service.check_and_classify_for_order(location, make_order())
 
     assert result["risk_level"] == "UNKNOWN"
     assert observer.update.call_count == 0
