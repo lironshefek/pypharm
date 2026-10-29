@@ -59,3 +59,35 @@ class WeatherReading:
             rain=data.get("rain"),
             weather_code=data.get("weather_code"),
         )
+
+
+class WeatherReadingBuilder:
+    """Builder pattern for creating WeatherReading with fluent interface."""
+
+    def __init__(self):
+        self._temperature = 20.0
+        self._rain = 0.0
+        self._weather_code = 0
+
+    def with_temperature(self, temperature: float) -> "WeatherReadingBuilder":
+        """Set temperature in Celsius."""
+        self._temperature = temperature
+        return self
+
+    def with_rain(self, rain: float) -> "WeatherReadingBuilder":
+        """Set rain in mm."""
+        self._rain = rain
+        return self
+
+    def with_weather_code(self, code: int) -> "WeatherReadingBuilder":
+        """Set WMO weather code."""
+        self._weather_code = code
+        return self
+
+    def build(self) -> WeatherReading:
+        """Build and return WeatherReading."""
+        return WeatherReading(
+            temperature_2m=self._temperature,
+            rain=self._rain,
+            weather_code=self._weather_code,
+        )

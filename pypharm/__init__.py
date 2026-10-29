@@ -35,7 +35,7 @@ from .exceptions import (
     WeatherJSONError,
     WeatherDataError,
 )
-from .weather import WeatherReading
+from .weather import WeatherReading, WeatherReadingBuilder
 from .api_client import WeatherAPIClient, get_weather_with_retry
 from .services import WeatherService
 from .observers import (
@@ -76,6 +76,7 @@ __all__ = [
     "WeatherJSONError",
     "WeatherDataError",
     "WeatherReading",
+    "WeatherReadingBuilder",
     "WeatherAPIClient",
     "get_weather_with_retry",
     "WeatherService",
