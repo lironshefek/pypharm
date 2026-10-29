@@ -13,7 +13,7 @@ SAMPLE_ENTITY_TYPES = {
 }
 
 
-def load_sample_data_from_jsonl(filepath: str) -> list:
+def load_sample_data_from_jsonl(filepath: str, product_factory=ProductFactory) -> list:
     objects = []
     identifiers = set()
     identifier_fields = {
@@ -33,7 +33,7 @@ def load_sample_data_from_jsonl(filepath: str) -> list:
                     raise ValueError("record must be a JSON object")
                 entity_type = record.get("entity_type")
                 if entity_type in ("perishable_product", "standard_product"):
-                    obj = ProductFactory.from_dict(record)
+                    obj = product_factory.from_dict(record)
                 else:
                     model = SAMPLE_ENTITY_TYPES.get(entity_type)
                     if model is None:
