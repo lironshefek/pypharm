@@ -3,12 +3,11 @@ repository.py - Part D: Read and validate transfer orders from JSONL file.
 """
 
 import json
-from .models import Employee, Location, PerishableProduct, StandardProduct, TransferOrder, InventoryItem, Product
+from .factories import ProductFactory
+from .models import Employee, Location, TransferOrder, InventoryItem, Product
 
 
 SAMPLE_ENTITY_TYPES = {
-    "perishable_product": PerishableProduct,
-    "standard_product": StandardProduct,
     "location": Location,
     "employee": Employee,
 }
@@ -33,10 +32,13 @@ def load_sample_data_from_jsonl(filepath: str) -> list:
                 if not isinstance(record, dict):
                     raise ValueError("record must be a JSON object")
                 entity_type = record.get("entity_type")
-                model = SAMPLE_ENTITY_TYPES.get(entity_type)
-                if model is None:
-                    raise ValueError(f"unknown entity_type {entity_type!r}")
-                obj = model.from_dict(record)
+                if entity_type in ("perishable_product", "standard_product"):
+                    obj = ProductFactory.from_dict(record)
+                else:
+                    model = SAMPLE_ENTITY_TYPES.get(entity_type)
+                    if model is None:
+                        raise ValueError(f"unknown entity_type {entity_type!r}")
+                    obj = model.from_dict(record)
                 identifier = getattr(obj, identifier_fields[entity_type])
                 product_types = ("perishable_product", "standard_product")
                 identifier_group = "product" if entity_type in product_types else entity_type

@@ -24,6 +24,7 @@ from .iterators import (
 )
 
 from .context_managers import LocationMaintenance
+from .factories import ProductFactory
 
 from .repository import load_sample_data_from_jsonl, load_transfer_orders_from_jsonl, load_inventory_items_from_jsonl
 from .config import WeatherConfig
@@ -56,6 +57,7 @@ __all__ = [
     "critical_priority_orders_pipeline",
     # Context Manager
     "LocationMaintenance",
+    "ProductFactory",
     # Repository
     "load_sample_data_from_jsonl",
     "load_transfer_orders_from_jsonl",
