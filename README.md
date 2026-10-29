@@ -113,8 +113,6 @@ pypharm/  (repository root)
 │
 ├── pypharm/                           # חבילת Python (package)
 │   ├── __init__.py                    # הגדרת החבילה, ייצוא כל המודולים
-│   ├── factories.py                    # ProductFactory ליצירת סוג המוצר לפי רשומת JSONL
-│   ├── observers.py                    # אירועי אישור בסיכון מזג אוויר גבוה ומאזינים
 │   ├── models.py                      # מחלקות OOP, הרכבה, הורשה, פולימורפיזם, הרשאות ועובדים
 │   ├── processing.py                  # מבני נתונים, תורים, Comprehensions, לוגיקה עסקית ומיון
 │   ├── iterators.py                   # איטרטורים מותאמים, גנרטורים ו-Lazy Pipeline
@@ -164,18 +162,6 @@ pypharm/  (repository root)
 * הזמנות ניוד המשויכות לעובד שלא קיים בקטלוג 
 (למשל מזהה פיקטיבי `EMP-999`).
 * הזמנות ניוד המשויכות לעובד שאינו פעיל (`is_active = False`).
-
-### תבנית Factory ליצירת מוצרים
-`ProductFactory` שבמודול `factories.py` מקבלת רשומת מוצר מה־JSONL ובוחרת את מחלקת המוצר לפי `entity_type`: ערך `perishable_product` יוצר `PerishableProduct`, וערך `standard_product` יוצר `StandardProduct`. `repository.py` נשאר אחראי לקריאת הקובץ ולבדיקת הרשומות; ה־Factory מרכזת את ההחלטה איזה סוג מוצר ליצור. כך הוספת סוג מוצר חדש דורשת לעדכן את נקודת הבחירה ב־Factory, לצד הוספת המחלקה, שדותיה והבדיקות המתאימות.
-
-### Observer לבקשות אישור בסיכון מזג אוויר גבוה
-לאחר בדיקת מזג אוויר מוצלחת, `WeatherService` מפרסם אירוע `ApprovalRequiredEvent` רק כאשר רמת הסיכון היא `DANGER` (טמפרטורה מתחת ל־0° או מעל 30°). מזג אוויר תקין וכשל בבדיקת השירות אינם מפעילים את המאזינים.
-
-* `AuditLogObserver` רושם בלוג את מזהה ההזמנה, הטמפרטורה, רמת הסיכון והעובד המשויך.
-* `IntegrityAlertObserver` בודק את העובד המשויך להזמנה באמצעות `validate_employees_integrity`; עובד חסר או לא פעיל נרשם כהתראת תקינות.
-* כדי לבצע את בדיקת העובד, יש להעביר ל־`WeatherService.check_and_classify_for_order(location, order, employees_catalog)` את ההזמנה ואת קטלוג העובדים. אם לא נמסרת הזמנה, אירוע הסיכון עדיין מתועד, אך בדיקת קשר העובד אינה יכולה להתבצע.
-
-ה־Observer מתעד ומתריע; הוא אינו מאשר או דוחה את ההזמנה ואינו משנה את הסטטוס שלה. החלטת האישור נשארת לפי כללי התפקידים הקיימים ב־`WeatherService`.
 
 ---
 
@@ -295,7 +281,7 @@ pypharm/  (repository root)
 
 ### דרישות קדם
 * **Python 3.10** ומעלה.
-* אין צורך בהתקנת חבילות חיצוניות (שימוש בספרייה הסטנדרטית בלבד).
+* משלב 2 נדרשת הספרייה `requests` – ראו "איך מריצים?" תחת "שלב 2".
 
 ### הוראות הרצה
 1. שבטו את המאגר (Clone) או חלצו את קובצי הפרויקט.
@@ -308,122 +294,123 @@ python main.py
 
 ---
 
-## 10. שלב 2 - שירות חיצוני, תבניות תכנון ובדיקות
+## שלב 2
 
 ### מה נוסף בשלב 2?
 
-בשלב 2 הורחב תהליך אישור משלוחים כדי להתחשב במזג האוויר בסניף היעד. **הערך העסקי:** שמירת מוצרים רגישים לטמפרטורה — בתנאים קיצוניים (טמפרטורה מתחת ל-0°C או מעל 30°C), רק מנהל לוגיסטיקה בעל סמכות מלאה יכול לאשר משלוח, בעוד שבתנאים נורמליים גם מנהל מחסן רשאי.
+הרחבנו את תהליך **אישור יציאת הזמנת ניוד** (`PENDING` → `IN_TRANSIT`): לפני היציאה המערכת בודקת את הטמפרטורה בסניף היעד דרך שירות מזג אוויר חיצוני, מסווגת את רמת הסיכון וקובעת מי רשאי לאשר את המשלוח. **הערך העסקי:** הגנה על קרמים, ג'לים ומוצרים בקירור מפני חום או קור קיצוניים בזמן הובלה, וסמכות אישור בכירה דווקא כשהסיכון גבוה.
 
-**השירות החיצוני:** [Open-Meteo API](https://open-meteo.com/en/docs) (בחינם, ללא מפתח) מסיף נתוני טמפרטורה בזמן אמת עבור כל סניף. **השימוש במידע:** הטמפרטורה משפיעה על דרישות התפקיד (רול) הנדרשות לאישור. **הטיפול בכשל:** אם חיבור ה-API נכשל או מחזיר נתונים לא תקינים, ההזמנה נשארת בסטטוס `PENDING` ולא מתקדמת עד שהשירות יוחזר לשירות — זה מנע משגיאות כתוצאה מנתונים אמינות.
+* **המידע מהשירות:** טמפרטורה נוכחית (`temperature_2m`), גשם וקוד מזג אוויר. הטמפרטורה קובעת את רמת הסיכון: `NORMAL` בין 0°C ל־30°C (כולל), `DANGER` מתחת ל־0°C או מעל 30°C.
+* **השימוש העסקי:** ב־`NORMAL` מנהל/ת מחסן או מנהל/ת לוגיסטיקה רשאים לאשר; ב־`DANGER` רק מנהל/ת לוגיסטיקה.
+* **כשהשירות לא זמין או מחזיר מידע לא תקין:** ההזמנה **לא מתקדמת** – היא נשארת `PENDING` עם רמת סיכון `UNKNOWN` וללא תפקידים מאשרים, עד שבדיקה תצליח. כך אין אישור שמבוסס על נתונים חסרים.
+* **שילוב תת־המערכת (רביעייה):** אירוע `DANGER` מפעיל את תת־מערכת העובדים וההרשאות – `IntegrityAlertObserver` בודק שהעובד המשויך להזמנה קיים ופעיל, ומתריע אם לא.
+* **פעולות בחפיפה ומשאב משותף:** בדיקת מזג האוויר בכמה סניפי יעד היא משימות עצמאיות שאפשר לבצע במקביל; המשאב המשותף שיש להגן עליו הוא כמות המלאי של מוצר כאשר כמה הזמנות מבקשות את היחידה האחרונה (פירוט ב"החלטות תכנון").
 
-### איך מריצים שלב 2?
+### איך מריצים?
 
-**דרישות:**
-* Python 3.10+
-* ספרייה `requests` (התקן: `pip install requests`)
+**דרישות:** Python 3.10 ומעלה.
 
-**הרצה (ללא רשת — mock mode, ברירת מחדל):**
+```bash
+pip install requests pytest
+```
+
+**משתני סביבה** (כולם אופציונליים, ללא סודות – השירות אינו דורש מפתח; דוגמה ב־[`.env.example`](.env.example)):
+
+| משתנה | ברירת מחדל | תפקיד |
+| :--- | :--- | :--- |
+| `WEATHER_MODE` | `default` | `default` = נתונים מדומים ללא רשת · `live` = שירות אמיתי |
+| `WEATHER_API_URL` | `https://api.open-meteo.com/v1/forecast` | כתובת השירות |
+| `WEATHER_TIMEOUT` | `5` | timeout לבקשה (שניות) |
+| `WEATHER_RETRY_ATTEMPTS` | `3` | מספר ניסיונות כולל |
+| `WEATHER_RETRY_DELAY` | `1` | המתנה בין ניסיונות (שניות) |
+
+**הרצה ללא רשת (ברירת מחדל):**
 ```bash
 python main.py
 ```
-יודפסו טמפרטורות קבועות עבור Modiin (33.5°C), Tel Aviv (24°C), Haifa (21.5°C).
 
-**הרצה עם API אמיתי (חיבור לרשת):**
+**הרצה מול השירות האמיתי:**
 ```bash
-WEATHER_MODE=live python main.py
+WEATHER_MODE=live python main.py          # bash
+$env:WEATHER_MODE="live"; python main.py  # PowerShell
 ```
-יחזור נתונים עדכניים מ-Open-Meteo.
+הפלט מציין במפורש `Mode: MOCK` או `Mode: LIVE`, וליד כל טמפרטורה `(mock data)` או `(live data)`.
 
-**הרצת בדיקות:**
+**הרצת הבדיקות** (ללא רשת וללא המתנות אמיתיות):
 ```bash
-# כל בדיקות השלב
-pytest tests/test_weather_api.py tests/test_weather_services.py tests/test_weather_observers.py tests/test_factories.py -v
-
-# רק בדיקות ספציפיות
-pytest tests/test_weather_api.py -v              # WeatherAPIClient + retry logic
-pytest tests/test_weather_observers.py -v        # Observer pattern
-pytest tests/test_factories.py -v                # ProductFactory
+python -m pytest -v
 ```
 
-### ארגון הקוד — מודולים חדשים
+### איך הקוד מאורגן?
 
-**ליבה של שלב 2:**
-* **`api_client.py`:** `WeatherAPIClient` (GET request ל-Open-Meteo), `MockWeatherClient` (offline mode), `get_weather_with_retry()` (3 ניסיונות עם 1s delay)
-* **`config.py`:** `WeatherConfig` (טוען WEATHER_MODE, TIMEOUT, RETRY_ATTEMPTS משתני סביבה)
-* **`weather.py`:** `WeatherReading` (immutable object עם temperature_2m, rain, weather_code; validates טמפרטורה)
-* **`exceptions.py`:** 4 סוגי חריגות — `WeatherCommunicationError` (network), `WeatherHTTPError` (4xx/5xx), `WeatherJSONError` (parsing), `WeatherDataError` (validation)
-* **`services.py`:** `WeatherService` (classify_risk, get_required_roles, check_and_classify_for_order; משתמשת בObservers)
-
-**תבניות:**
-* **`factories.py`:** `ProductFactory` — מרכזת החלטה איזה סוג מוצר ליצור לפי `entity_type` מ-JSON (PerishableProduct או StandardProduct). `repository.py` משתמשת בה כדי להימנע משכפול if/elif.
-* **`observers.py`:** `ApprovalEventPublisher` (subscribe/publish), `AuditLogObserver` (רושם ללוג), `IntegrityAlertObserver` (בודק תקינות עובדים)
-
-**בדיקות:**
 ```
-tests/
-├── test_weather_api.py          # 14 בדיקות (success, timeout, HTTP error, JSON, retry logic)
-├── test_weather_services.py     # 11 בדיקות (classify_risk, get_required_roles, integration)
-├── test_weather_observers.py    # 4 בדיקות (observer pattern, danger events, integrity)
-└── test_factories.py            # 4 בדיקות (ProductFactory, unknown type, JSONL loading)
+pypharm/
+├── pypharm/
+│   ├── api_client.py      # WeatherAPIClient (GET ל-Open-Meteo), MockWeatherClient, get_weather_with_retry
+│   ├── weather.py         # WeatherReading (immutable, ולידציה), WeatherReadingBuilder (פותח ב-TDD)
+│   ├── exceptions.py      # 4 סוגי כשל: תקשורת / HTTP / JSON / נתונים
+│   ├── config.py          # WeatherConfig – טעינת משתני סביבה
+│   ├── services.py        # WeatherService – סיווג סיכון, תפקידים מאשרים, תגובה לכשל
+│   ├── factories.py       # ProductFactory – יצירת סוג המוצר לפי רשומת JSONL
+│   ├── observers.py       # ApprovalEventPublisher + AuditLogObserver + IntegrityAlertObserver
+│   ├── models.py          # מודלי שלב 1 + תת-המערכת: Employee, OrderActionAuthorizer
+│   ├── processing.py      # לוגיקה עסקית שלב 1 + validate_employees_integrity (תת-המערכת)
+│   ├── repository.py      # טעינת JSONL (משתמש ב-ProductFactory)
+│   └── reports.py         # דוח עסקי
+├── tests/
+│   ├── test_api_client.py               # חיבור, סוגי כשל, Retry, WeatherReading
+│   ├── test_services.py                 # סיווג סיכון, תפקידים, תהליך משולב
+│   ├── test_models.py                   # התנהגויות שלב 1
+│   ├── test_factories.py                # ProductFactory וטעינה מקובץ
+│   ├── test_weather_observers.py        # Observer ותת-מערכת העובדים
+│   └── test_weather_reading_builder.py  # היכולת שפותחה ב-TDD
+├── data/                  # נתוני הדגמה סינתטיים (JSONL)
+├── main.py                # הדגמת שלב 1 + שלב 2
+├── .env.example           # שמות משתנים וערכי דוגמה בלבד
+└── pyproject.toml
 ```
+
+**מיקום תת־המערכת (עובדים, הרשאות ויושרה):** `Employee` ו־`OrderActionAuthorizer` ב־`models.py`, `validate_employees_integrity` ב־`processing.py`, והחיבור לשלב 2 דרך `IntegrityAlertObserver` ב־`observers.py`.
+
+**חלוקת אחריות:**
+* **רות:** חיברה את המערכת לשירות מזג האוויר (כולל ניסיונות חוזרים), כתבה את סיווג הסיכון ואת כללי ההרשאה לפי מזג האוויר, הגדירה את סוגי השגיאות ואת קובץ ההגדרות, כתבה 25 בדיקות לשירות ופיתחה את `WeatherReadingBuilder` בשיטת TDD.
+* **עידן:** כתבה את שתי תבניות התכנון – Factory ליצירת מוצרים ו־Observer להתראות במזג אוויר מסוכן – חיברה אותן לשירות וכתבה להן בדיקות. התבניות נשענות על מחלקות המוצרים וההזמנות שכתבה בשלב 1.
+* **נועה:** התאימה את טעינת הנתונים (`repository.py`) לעבודה עם ה־Factory. בשלב 1 כתבה את מחלקת המיקום (`Location`), שהקואורדינטות שלה משמשות עכשיו לבדיקת מזג האוויר, ואת הדוח העסקי (`reports.py`). בנוסף השתתפה בכתיבת ה־README ובבדיקות המערכת.
+* **לירון:** הוסיפה מצב הרצה ללא רשת עם נתונים מדומים, וקבעה שכאשר השירות נכשל ההזמנה נשארת ממתינה; הוסיפה הרשאה למנהלת מחסן; השלימה את הבדיקות (התנהגויות משלב 1, תהליך משולב, ניסיונות חוזרים ללא המתנה אמיתית), תיקנה את `WeatherReading` וכתבה את ה־README של שלב 2.
 
 ### החלטות תכנון מרכזיות
 
-**1. בחירת Open-Meteo API:**
-* בחינם ללא מפתח (מתאים לפרויקט חינוכי)
-* API פשוטה (GET עם latitude/longitude)
-* קל לsimulate offline עם MockWeatherClient
-
-**2. Retry Logic (3 ניסיונות, 1 שניה):**
-* **Retry על:** Timeout, ConnectionError (בעיות זמניות)
-* **ללא retry על:** HTTP 4xx/5xx (בעיות קבע), JSON invalid, data validation (לא יעזור לנסות שוב)
-
-**3. Factory Pattern:**
-קודם: `load_sample_data_from_jsonl` היתה צריכה לדעת איזה סוג מוצר לחזר לכל רשומה. עכשיו: `ProductFactory` מרכזת זאת. **יתרונות:** הוספת סוג מוצר חדש דורשת שינוי בנקודה אחת בלבד (Factory._PRODUCT_TYPES); `repository.py` נשאר ללא שינוי. **בדיקה:** קל לבדוק את הFactory בעצמאות.
-
-**4. Observer Pattern:**
-קודם: `WeatherService` היתה צריכה לדעת איזה observers לקרוא (logger, integrity checks). עכשיו: `WeatherService` יוצרת `ApprovalEventPublisher` ומדיווחת רק על `DANGER` events. **יתרונות:** הפרדת דאגות (Service לא תלוי בlogging implementation), קל להוסיף observer חדש, קל לבדוק עם Mock observers.
-
-**5. Dependency Injection (DI):**
-* `WeatherService` מקבל `client` בבנאי (default: WeatherAPIClient או MockWeatherClient)
-* לא יוצר את ה-client בתוכו
-* **יתרון בדיקה:** יכול להעביר MockWeatherClient בבדיקה ללא network
-* **יתרון הרחבה:** יכול להחליף client בעתיד בלא לשנות WeatherService
-
-**6. בדיקות (33 בדיקות, 100% passing):**
-* יחידה: WeatherAPIClient, WeatherReading, ProductFactory (מבודדות עם mocks)
-* Integration: WeatherService עם תוך שימוש ב-MockWeatherClient
-* Edge cases: timeout, invalid JSON, missing fields, unknown product type, observer notifications
+* **השירות החיצוני:** [Open-Meteo Forecast API](https://open-meteo.com/en/docs) – חינמי וללא מפתח. בקשת GET עם `latitude`, `longitude`, `current=temperature_2m,rain,weather_code` ו־`timeout`.
+* **הפרדה בין תקשורת להחלטה:** `api_client.py` אחראי רק על הבקשה, `raise_for_status()`, פענוח JSON, בדיקת שדות והמרה ל־`WeatherReading`; `services.py` מחליט מה המשמעות העסקית.
+* **טיפול בכשל:** ארבעה סוגי חריגות נפרדים. **Retry** רק על Timeout / ConnectionError – עד 3 ניסיונות בסך הכול עם המתנה ביניהם, ולוג ברור אחרי הכישלון האחרון. שגיאת HTTP (כולל 401/403), JSON פגום ונתונים חסרים אינם מנוסים שוב, כי ניסיון נוסף לא יתקן אותם.
+* **Factory (`ProductFactory`):** טעינת הקטלוג צריכה ליצור סוג מוצר שונה לפי `entity_type`. ה־Factory מרכזת את הבחירה, כך ש־`repository.py` אחראי רק על קריאה ואימות, והוספת סוג מוצר דורשת שינוי בנקודה אחת.
+* **Observer (`ApprovalEventPublisher`):** אירוע `DANGER` אחד מפעיל שני מגיבים – רישום ביקורת ובדיקת תקינות העובד. `WeatherService` לא מכיר את המגיבים, ואפשר להוסיף מגיב חדש בלי לשנות אותו. ה־Observer מתעד ומתריע; הוא אינו מאשר או משנה סטטוס. **זו התבנית שמשרתת את השילוב עם תת־המערכת.**
+* **העברת תלויות מבחוץ:** `WeatherService(config, client, observers)` מקבל את ה־client ואת המגיבים בבנאי, ו־`load_sample_data_from_jsonl` מקבל `product_factory`. כך בבדיקות מעבירים client מדומה או Mock observers בלי רשת, ובהרצה בוחרים בין שירות אמיתי למדומה בלי לשנות את הלוגיקה.
+* **זרימת המידע בין המערכות:** הזמנה → מיקום היעד → `WeatherService` → `WeatherReading` → רמת סיכון → תפקידים מאשרים; ב־`DANGER` → אירוע → `IntegrityAlertObserver` → בדיקת העובד מול קטלוג העובדים. בכשל השירות – אין אירוע ואין מאשרים.
+* **מקביליות (בתכנון):** משימות עצמאיות – בדיקת מזג האוויר לשלושה סניפי יעד (סימולציה עם `asyncio.sleep`, גרסה סדרתית מול `gather`). משאב משותף – היחידה האחרונה של מוצר במלאי: בלי נעילה, שתי הזמנות עלולות לראות "יחידה אחת זמינה" ושתיהן לאשר, והמלאי יורד מתחת לאפס; `Lock` אחד מגן על רצף הבדיקה והעדכון.
 
 ### הוכחות שהמערכת עובדת
 
-**תוצאות בדיקות:**
+**בדיקות:** `python -m pytest` → **60 passed** (אומת גם כשהרשת חסומה ו־`WEATHER_MODE=live`, כלומר אף בדיקה לא פונה לשירות האמיתי).
+
+| קובץ | מקרים |
+| :--- | :--- |
+| `test_api_client.py` | 18 |
+| `test_models.py` | 13 |
+| `test_services.py` | 12 |
+| `test_weather_reading_builder.py` | 8 |
+| `test_weather_observers.py` | 5 |
+| `test_factories.py` | 4 |
+
+**הרצה מול השירות האמיתי** (`WEATHER_MODE=live python main.py`, 29.10.2026):
 ```
-test_weather_api.py          14 passed
-test_weather_services.py     11 passed
-test_weather_observers.py     4 passed
-test_factories.py             4 passed
-─────────────────────────────
-סה״כ:                        33 passed, 0 failed
+Mode: LIVE - real data from Open-Meteo (set by WEATHER_MODE=live)
+📍 Central Logistics Hub (Modiin):       15.7°C (live data) → NORMAL
+📍 Dizengoff Beauty Boutique (Tel Aviv): 21.9°C (live data) → NORMAL
+📍 Grand Canyon Branch (Haifa):          20.6°C (live data) → NORMAL
 ```
 
-**דוגמה הרצה (mock mode):**
-```
-📍 Modiin (Modiin):
-   Coordinates: (31.9103, 35.1876)
-   Temperature: 33.5°C (mock data)
-   Risk Level: DANGER
-   Approval Roles: ['LOGISTICS_MANAGER']
-   
-📍 Tel Aviv (Tel Aviv):
-   Coordinates: (32.0853, 34.7818)
-   Temperature: 24.0°C (mock data)
-   Risk Level: NORMAL
-   Approval Roles: ['WAREHOUSE_MANAGER', 'LOGISTICS_MANAGER']
-```
-
-**Git Commits (ראשי):**
-* `4793e2b` Stage 2: Complete overhaul — exception handling, config, WeatherAPIClient
-* `b16a61d` Add 25 comprehensive tests — API, Services, retry logic
-* `e9bcf44` add factories file — ProductFactory pattern
-* `68452f5` add observers file and edit README — Observer pattern, Observer tests
+**TDD – `WeatherReadingBuilder`:**
+* Red: `ec8bb9e` – בדיקות לממשק ה־Builder, נכשלות כי המחלקה לא קיימת
+* Green: `99f6f36` – מימוש מינימלי, הבדיקות עוברות
+* Refactor: `147e2b6` – שיפור ותיעוד, הבדיקות ממשיכות לעבור
