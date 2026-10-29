@@ -3,31 +3,40 @@ weather.py - WeatherReading data class and utilities.
 Represents a weather reading with validation.
 """
 
+from dataclasses import dataclass
 
+
+@dataclass(frozen=True, repr=False)
 class WeatherReading:
     """
     Immutable weather reading from API.
-    Validates temperature is a number.
+    Validates temperature is a number. Fields cannot be changed after creation.
+
+    Args:
+        temperature_2m: Temperature in Celsius (must be number)
+        rain: Optional rain in mm
+        weather_code: Optional WMO weather code
+
+    Raises:
+        ValueError: If temperature is not a number
     """
 
-    def __init__(self, temperature_2m: float, rain: float = None, weather_code: int = None):
-        """
-        Create a weather reading.
+    temperature_2m: float
+    rain: float | None = None
+    weather_code: int | None = None
 
-        Args:
-            temperature_2m: Temperature in Celsius (must be number)
-            rain: Optional rain in mm
-            weather_code: Optional WMO weather code
+    def __post_init__(self):
+        if not isinstance(self.temperature_2m, (int, float)):
+            raise ValueError(
+                f"temperature_2m must be a number, got {type(self.temperature_2m).__name__}"
+            )
 
-        Raises:
-            ValueError: If temperature is not a number
-        """
-        if not isinstance(temperature_2m, (int, float)):
-            raise ValueError(f"temperature_2m must be a number, got {type(temperature_2m).__name__}")
-
-        self.temperature_2m = float(temperature_2m)
-        self.rain = float(rain) if rain is not None else None
-        self.weather_code = int(weather_code) if weather_code is not None else None
+        # Normalize types; object.__setattr__ is needed because the dataclass is frozen
+        object.__setattr__(self, "temperature_2m", float(self.temperature_2m))
+        if self.rain is not None:
+            object.__setattr__(self, "rain", float(self.rain))
+        if self.weather_code is not None:
+            object.__setattr__(self, "weather_code", int(self.weather_code))
 
     def __repr__(self) -> str:
         return f"WeatherReading(temp={self.temperature_2m}°C, rain={self.rain}mm)"

@@ -196,6 +196,15 @@ class TestWeatherReading:
         assert reading.rain == 2.1
         assert reading.weather_code == 45
 
+    def test_weather_reading_is_immutable(self):
+        """Test a reading cannot be changed after it was received."""
+        reading = WeatherReading(temperature_2m=20.5, rain=2.1)
+
+        with pytest.raises(AttributeError):
+            reading.temperature_2m = 40.0
+
+        assert reading.temperature_2m == 20.5
+
     def test_weather_reading_invalid_temperature(self):
         """Test WeatherReading rejects non-numeric temperature."""
         with pytest.raises(ValueError):
