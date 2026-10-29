@@ -26,7 +26,8 @@ class WeatherReading:
     weather_code: int | None = None
 
     def __post_init__(self):
-        if not isinstance(self.temperature_2m, (int, float)):
+        # bool is a subclass of int in Python, so it must be rejected explicitly
+        if isinstance(self.temperature_2m, bool) or not isinstance(self.temperature_2m, (int, float)):
             raise ValueError(
                 f"temperature_2m must be a number, got {type(self.temperature_2m).__name__}"
             )

@@ -205,10 +205,15 @@ class TestWeatherReading:
 
         assert reading.temperature_2m == 20.5
 
-    def test_weather_reading_invalid_temperature(self):
+    @pytest.mark.parametrize("bad_temperature", [
+        "not a number",  # text
+        None,            # API returned null
+        True,            # bool is an int subclass but not a temperature
+    ])
+    def test_weather_reading_invalid_temperature(self, bad_temperature):
         """Test WeatherReading rejects non-numeric temperature."""
         with pytest.raises(ValueError):
-            WeatherReading(temperature_2m="not a number")
+            WeatherReading(temperature_2m=bad_temperature)
 
     def test_weather_reading_from_api_response(self):
         """Test creating WeatherReading from API response dict."""
