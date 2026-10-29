@@ -63,3 +63,34 @@ def test_weather_reading_builder_edge_cases():
 
     assert cold.temperature_2m == -15.0
     assert hot.temperature_2m == 50.0
+
+
+def test_weather_reading_builder_presets():
+    """Builder should provide convenience presets."""
+    danger = WeatherReadingBuilder().for_danger_condition().build()
+    normal = WeatherReadingBuilder().for_normal_condition().build()
+    cold = WeatherReadingBuilder().for_cold_condition().build()
+
+    assert danger.temperature_2m == 35.0
+    assert normal.temperature_2m == 20.0
+    assert cold.temperature_2m == -5.0
+
+
+def test_weather_reading_builder_reset():
+    """Builder should support reset to defaults."""
+    builder = (
+        WeatherReadingBuilder()
+        .with_temperature(50.0)
+        .with_rain(20.0)
+        .reset()
+    )
+    reading = builder.build()
+
+    assert reading.temperature_2m == 20.0
+    assert reading.rain == 0.0
+
+
+def test_weather_reading_builder_rain_validation():
+    """Builder should reject negative rain."""
+    with pytest.raises(ValueError, match="rain must be non-negative"):
+        WeatherReadingBuilder().with_rain(-5.0)

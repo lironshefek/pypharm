@@ -62,7 +62,18 @@ class WeatherReading:
 
 
 class WeatherReadingBuilder:
-    """Builder pattern for creating WeatherReading with fluent interface."""
+    """
+    Builder pattern for creating WeatherReading with fluent interface.
+
+    Supports method chaining and provides common presets for testing.
+    Example:
+        reading = (
+            WeatherReadingBuilder()
+            .with_temperature(35.0)
+            .with_rain(10.0)
+            .build()
+        )
+    """
 
     def __init__(self):
         self._temperature = 20.0
@@ -70,22 +81,75 @@ class WeatherReadingBuilder:
         self._weather_code = 0
 
     def with_temperature(self, temperature: float) -> "WeatherReadingBuilder":
-        """Set temperature in Celsius."""
+        """
+        Set temperature in Celsius.
+
+        Args:
+            temperature: Temperature value (can be negative or very high)
+
+        Returns:
+            self for method chaining
+        """
         self._temperature = temperature
         return self
 
     def with_rain(self, rain: float) -> "WeatherReadingBuilder":
-        """Set rain in mm."""
+        """
+        Set rain in mm.
+
+        Args:
+            rain: Rainfall amount (non-negative)
+
+        Returns:
+            self for method chaining
+
+        Raises:
+            ValueError: If rain is negative
+        """
+        if rain < 0:
+            raise ValueError(f"rain must be non-negative, got {rain}")
         self._rain = rain
         return self
 
     def with_weather_code(self, code: int) -> "WeatherReadingBuilder":
-        """Set WMO weather code."""
+        """
+        Set WMO weather code.
+
+        Args:
+            code: WMO weather code (0-99)
+
+        Returns:
+            self for method chaining
+        """
         self._weather_code = code
         return self
 
+    def for_danger_condition(self) -> "WeatherReadingBuilder":
+        """Preset for dangerous weather (>30°C)."""
+        return self.with_temperature(35.0)
+
+    def for_normal_condition(self) -> "WeatherReadingBuilder":
+        """Preset for normal weather (0-30°C)."""
+        return self.with_temperature(20.0)
+
+    def for_cold_condition(self) -> "WeatherReadingBuilder":
+        """Preset for cold weather (<0°C)."""
+        return self.with_temperature(-5.0)
+
+    def reset(self) -> "WeatherReadingBuilder":
+        """Reset builder to defaults."""
+        self._temperature = 20.0
+        self._rain = 0.0
+        self._weather_code = 0
+        return self
+
     def build(self) -> WeatherReading:
-        """Build and return WeatherReading."""
+        """
+        Build and return WeatherReading.
+
+        Returns:
+            WeatherReading object with configured values
+        """
         return WeatherReading(
             temperature_2m=self._temperature,
             rain=self._rain,
