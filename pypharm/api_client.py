@@ -105,8 +105,12 @@ class MockWeatherClient:
     }
     DEFAULT_TEMPERATURE = 22.0
 
+    def __init__(self, temperatures: dict = None):
+        """temperatures: optional (latitude, longitude) -> Celsius overrides for a demo scenario."""
+        self.temperatures = {**self.MOCK_TEMPERATURES, **(temperatures or {})}
+
     def get_weather(self, latitude: float, longitude: float) -> WeatherReading:
-        temperature = self.MOCK_TEMPERATURES.get((latitude, longitude), self.DEFAULT_TEMPERATURE)
+        temperature = self.temperatures.get((latitude, longitude), self.DEFAULT_TEMPERATURE)
         logger.info(f"Mock weather for ({latitude}, {longitude}): {temperature}°C")
         return WeatherReading(temperature_2m=temperature, rain=0.0)
 

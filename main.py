@@ -21,6 +21,7 @@ from pypharm import (
     WeatherConfig,
     WeatherService,
     ApprovalQueue,
+    queue_orders_for_approval,
     check_branches_concurrent,
     check_branches_serial,
     run_approvers,
@@ -287,19 +288,37 @@ def main():
     print("="*60)
 
     approval_orders = load_transfer_orders_from_jsonl(str(data_dir / "inventory_data.jsonl"))
-    queue = ApprovalQueue(approval_orders)
-    managers = [e.name for e in employees if e.role in ("WAREHOUSE_MANAGER", "LOGISTICS_MANAGER")]
-    print(f"\n{len(queue)} orders waiting for approval.")
-    print(f"Managers reviewing the same orders at the same time: {', '.join(managers)}")
+    haifa = next(location for location in locations if location.location_id == "STORE-HAIFA")
+    heat_wave = MockWeatherClient({(haifa.latitude, haifa.longitude): 35.0})
+    print("\nSimulated weather (mock): heat wave in Haifa (35°C), normal elsewhere.")
+
+    # Weather is checked before the managers start - no network call inside the lock.
+    queue = ApprovalQueue()
+    queue_orders_for_approval(
+        queue,
+        approval_orders,
+        {location.location_id: location for location in locations},
+        WeatherService(config, client=heat_wave),
+        employees_dict,
+    )
+    # The warehouse manager starts first, so she reaches the hot-weather orders before
+    # the logistics manager does - the demo then shows both kinds of refusal.
+    managers = [e for e in employees if e.role == "WAREHOUSE_MANAGER"] + [
+        e for e in employees if e.role == "LOGISTICS_MANAGER"
+    ]
+    print(f"{len(queue)} orders waiting for approval.")
+    print("Managers reviewing the same orders at the same time: "
+          + ", ".join(f"{m.name} ({m.role})" for m in managers))
 
     run_approvers(queue, managers, review_time=0.05)
 
     print(f"\nApprovals: {queue.approved_count} (one per order)")
-    print(f"Double approvals blocked: {queue.refused_attempts}")
+    print(f"Refused - already approved by the other manager: {queue.refusals[ApprovalQueue.ALREADY_HANDLED]}")
+    print(f"Refused - role not allowed for this weather risk: {queue.refusals[ApprovalQueue.NOT_AUTHORIZED]}")
     print(f"Orders now IN_TRANSIT: {sum(order.status == 'IN_TRANSIT' for order in approval_orders)}")
     print(f"Orders still waiting: {len(queue)}")
-    for order_id, manager in queue.approval_log:
-        print(f"   {order_id} approved by {manager}")
+    for order_id, manager, risk_level in queue.approval_log:
+        print(f"   {order_id} ({risk_level}) approved by {manager}")
 
 
 if __name__ == "__main__":

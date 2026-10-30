@@ -53,6 +53,7 @@ from .async_processing import (
 from .threaded_processing import (
     ApprovalQueue,
     approval_worker,
+    queue_orders_for_approval,
     run_approvers,
 )
 
@@ -103,5 +104,6 @@ __all__ = [
     # Threaded Processing (Section 5.2)
     "ApprovalQueue",
     "approval_worker",
+    "queue_orders_for_approval",
     "run_approvers",
 ]

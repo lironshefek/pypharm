@@ -367,7 +367,7 @@ pypharm/
 │   ├── test_weather_observers.py        # Observer ותת-מערכת העובדים
 │   ├── test_weather_reading_builder.py  # היכולת שפותחה ב-TDD
 │   ├── test_async_processing.py         # חפיפה, תוצאות זהות, סדר הקלט
-│   └── test_threaded_processing.py      # מספר האישורים והמצב הסופי עם כמה threads
+│   └── test_threaded_processing.py      # אישור אחד לכל הזמנה, הרשאות לפי מזג אוויר, מצב סופי
 ├── data/                  # נתוני הדגמה סינתטיים (JSONL)
 ├── main.py                # הדגמת שלב 1 + שלב 2
 ├── .env.example           # שמות משתנים וערכי דוגמה בלבד
@@ -392,11 +392,11 @@ pypharm/
 * **העברת תלויות מבחוץ:** `WeatherService(config, client, observers)` מקבל את ה־client ואת המגיבים בבנאי, ו־`load_sample_data_from_jsonl` מקבל `product_factory`. כך בבדיקות מעבירים client מדומה או Mock observers בלי רשת, ובהרצה בוחרים בין שירות אמיתי למדומה בלי לשנות את הלוגיקה.
 * **זרימת המידע בין המערכות:** הזמנה → מיקום היעד → `WeatherService` → `WeatherReading` → רמת סיכון → תפקידים מאשרים; ב־`DANGER` → אירוע → `IntegrityAlertObserver` → בדיקת העובד מול קטלוג העובדים. בכשל השירות – אין אירוע ואין מאשרים.
 * **משימות עצמאיות (סימולציה):** בדיקת מזג האוויר בכל סניף אינה תלויה בסניף אחר. ההמתנה לשירות מדומה ב־`await asyncio.sleep(...)`, והטמפרטורות מגיעות מנתונים מקומיים (`SIMULATED_BRANCH_WEATHER`), ללא רשת. הגרסה הסדרתית ממתינה לכל בדיקה לפני הבאה (‎0.6 שניות), ו־`gather` מתזמן את כולן לפני איסוף התוצאות (‎0.3 שניות – כמו הבדיקה הארוכה). התוצאות זהות ולפי סדר הקלט, גם כשסדר הסיום שונה.
-* **המשאב המשותף ו־Lock:** `ApprovalQueue` – תור ההזמנות שממתינות לאישור יציאה (הזמנה שכבר ממתינה לא נכנסת שוב). כמה מנהלות (threads) עוברות בו־זמנית על אותן הזמנות, בודקות כל אחת ומנסות לאשר. אישור הוא רצף של **בדיקה ועדכון**: האם ההזמנה עדיין `PENDING`? → מעבר ל־`IN_TRANSIT` ורישום ביומן האישורים. **בלי נעילה:** שתי מנהלות פותחות את אותה הזמנה, שתיהן רואות `PENDING` לפני שאחת מעדכנת, ושתיהן מאשרות – אישור כפול שנרשם ונספר פעמיים (בניסוי ללא Lock: 200 אישורים ל־100 הזמנות). `Lock` אחד מגן על כל הרצף: הראשונה מאשרת, השנייה מקבלת סירוב. עיון בהזמנה ובדיקת מזג אוויר נעשים מחוץ לקטע הנעול.
+* **המשאב המשותף ו־Lock:** `ApprovalQueue` – תור ההזמנות שממתינות לאישור יציאה (הזמנה שכבר ממתינה לא נכנסת שוב). לפני שההזמנה נכנסת לתור נבדק מזג האוויר ביעד – מחוץ לנעילה, כי זו פנייה לרשת – ונשמרים איתה רמת הסיכון והתפקידים המורשים. המנהלות (threads) עוברות בו־זמנית על אותן הזמנות ומנסות לאשר. אישור הוא רצף של **בדיקה ועדכון**: האם ההזמנה עדיין `PENDING`? → האם התפקיד שלה רשאי לאשר את רמת הסיכון (`NORMAL`: מנהלת מחסן או לוגיסטיקה, `DANGER`: לוגיסטיקה בלבד, `UNKNOWN`: אף אחת)? → `OrderActionAuthorizer` בודק שהעובדת פעילה ומעביר ל־`IN_TRANSIT` → רישום ביומן. **בלי נעילה:** שתי מנהלות פותחות את אותה הזמנה, שתיהן רואות `PENDING` לפני שאחת מעדכנת, ושתיהן מאשרות – אישור כפול שנרשם ונספר פעמיים (בניסוי ללא Lock: 200 אישורים ל־100 הזמנות). `Lock` אחד מגן על כל הרצף: הראשונה המורשית מאשרת; מי שאחריה מקבלת סירוב "כבר אושרה", ומי שאינה מורשית מקבלת סירוב "אין הרשאה".
 
 ### הוכחות שהמערכת עובדת
 
-**בדיקות:** `python -m pytest` → **75 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
+**בדיקות:** `python -m pytest` → **81 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
 
 | קובץ | מקרים |
 | :--- | :--- |
@@ -407,7 +407,7 @@ pypharm/
 | `test_weather_observers.py` | 5 |
 | `test_factories.py` | 4 |
 | `test_async_processing.py` | 8 |
-| `test_threaded_processing.py` | 7 |
+| `test_threaded_processing.py` | 13 |
 
 **הרצה מול השירות האמיתי** (`WEATHER_MODE=live python main.py`, 30.10.2026):
 ```
@@ -423,12 +423,19 @@ Serial (one check after another): 0.61s
 Concurrent (gather):              0.31s
 Same results, same input order: True
 
+Simulated weather (mock): heat wave in Haifa (35°C), normal elsewhere.
 5 orders waiting for approval.
-Managers reviewing the same orders at the same time: Aya, noa
+Managers reviewing the same orders at the same time: noa (WAREHOUSE_MANAGER), Aya (LOGISTICS_MANAGER)
 Approvals: 5 (one per order)
-Double approvals blocked: 5
+Refused - already approved by the other manager: 3
+Refused - role not allowed for this weather risk: 2
 Orders now IN_TRANSIT: 5
 Orders still waiting: 0
+   ORD-501 (NORMAL) approved by noa
+   ORD-502 (DANGER) approved by Aya
+   ORD-503 (DANGER) approved by Aya
+   ORD-504 (NORMAL) approved by noa
+   ORD-505 (NORMAL) approved by noa
 ```
 
 **TDD – `WeatherReadingBuilder`:**
