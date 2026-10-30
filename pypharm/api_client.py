@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 class WeatherAPIClient:
     """Client for Open-Meteo weather API."""
 
+    source = "live"  # shown in the output so real data is never mistaken for mock data
+
     def __init__(self, config: WeatherConfig = None):
         self.config = config or WeatherConfig()
         self.base_url = self.config.API_URL
@@ -99,6 +101,8 @@ class MockWeatherClient:
     Offline stand-in for WeatherAPIClient (same get_weather contract).
     Returns fixed, pre-defined readings so the demo runs without network.
     """
+
+    source = "mock"
 
     # (latitude, longitude) -> temperature in Celsius
     MOCK_TEMPERATURES = {

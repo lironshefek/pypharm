@@ -35,14 +35,15 @@ class WeatherService:
         """
         Args:
             config: WeatherConfig instance
-            client: Object with get_weather(lat, lon). If not given, chosen by
+            client: Object with get_weather(lat, lon) and a ``source`` label. If not given, chosen by
                     WEATHER_MODE: WeatherAPIClient in live mode, MockWeatherClient otherwise.
         """
         self.config = config or WeatherConfig()
         if client is None:
             client = WeatherAPIClient(self.config) if self.config.is_live_mode() else MockWeatherClient()
         self.client = client
-        self.source = "live" if isinstance(client, WeatherAPIClient) else "mock"
+        # Each client labels its own data (polymorphism instead of a type check)
+        self.source = getattr(client, "source", "unknown")
         default_observers = [AuditLogObserver(), IntegrityAlertObserver()]
         self.approval_events = ApprovalEventPublisher(
             default_observers if observers is None else observers
