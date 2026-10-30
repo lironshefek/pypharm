@@ -58,16 +58,20 @@ class ApprovalQueue:
 
         All orders are submitted before the managers start working.
         """
-        if order.order_id in self._entries:
-            raise ValueError(f"Order {order.order_id} is already waiting for approval")
-        if order.status != "PENDING":
-            raise ValueError(f"Only PENDING orders can wait for approval, {order.order_id} is {order.status}")
+        self.validate_submission(order)
         self._entries[order.order_id] = {
             "order": order,
             "risk_level": risk_level,
             "required_roles": set(required_roles),
             "lock": threading.Lock(),
         }
+
+    def validate_submission(self, order: TransferOrder) -> None:
+        """Raise ValueError if the order cannot enter the queue. Changes nothing."""
+        if order.order_id in self._entries:
+            raise ValueError(f"Order {order.order_id} is already waiting for approval")
+        if order.status != "PENDING":
+            raise ValueError(f"Only PENDING orders can wait for approval, {order.order_id} is {order.status}")
 
     def risk_by_order(self) -> dict[str, str]:
         """Weather risk level recorded for every order in the queue."""
@@ -151,11 +155,22 @@ def queue_orders_for_approval(
 
     Runs before any manager thread starts, so the network calls stay outside the locks.
     When the weather check fails the risk is UNKNOWN and nobody may approve the order.
+
+    All or nothing: every order is validated first (known destination, PENDING,
+    not queued twice). If one order is invalid, no order is queued and no
+    weather is requested, so a bad record never leaves a partial batch behind.
     """
+    seen_ids = set()
     for order in orders:
-        location = locations_by_id.get(order.to_location_id)
-        if location is None:
+        if order.to_location_id not in locations_by_id:
             raise ValueError(f"Order {order.order_id} has unknown destination {order.to_location_id!r}")
+        if order.order_id in seen_ids:
+            raise ValueError(f"Order {order.order_id} appears twice in the batch")
+        queue.validate_submission(order)
+        seen_ids.add(order.order_id)
+
+    for order in orders:
+        location = locations_by_id[order.to_location_id]
         weather = weather_service.check_and_classify_for_order(location, order, employees_catalog)
         queue.submit(order, weather["risk_level"], weather["required_roles"])
 
