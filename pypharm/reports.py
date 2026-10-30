@@ -58,36 +58,47 @@ def generate_business_report(batch, approval_queue=None, employees_catalog=None)
     }
 
     if approval_queue is not None:
-        risk_by_order = approval_queue.risk_by_order()
-        risk_counts = {"NORMAL": 0, "DANGER": 0, "UNKNOWN": 0}
-        senior_backlog = 0
-        blocked = 0
-        for order in batch:
-            risk = risk_by_order.get(order.order_id)
-            if risk is None:
-                continue
-            risk_counts[risk] = risk_counts.get(risk, 0) + 1
-            if order.status == "PENDING" and risk == "DANGER":
-                senior_backlog += 1
-            if order.status == "PENDING" and risk == "UNKNOWN":
-                blocked += 1
-
-        active_lm = 0
-        for employee in (employees_catalog or {}).values():
-            if employee.role == "LOGISTICS_MANAGER" and employee.is_active:
-                active_lm += 1
-
-        report["weather_approval"] = {
-            "risk_counts": risk_counts,
-            "approved_count": approval_queue.approved_count,
-            "refusals": approval_queue.refusals,
-            "senior_approval_backlog": senior_backlog,
-            "blocked_by_weather_failure": blocked,
-            "active_logistics_managers": active_lm,
-            "backlog_per_logistics_manager": senior_backlog / active_lm if active_lm else None,
-        }
+        report["weather_approval"] = _weather_approval_summary(batch, approval_queue, employees_catalog or {})
 
     return report
+
+
+def _weather_approval_summary(batch, approval_queue, employees_catalog: dict) -> dict:
+    """
+    Stage 2 section: joins the weather risk (external service), the order status
+    (core system) and the employees catalog (subsystem).
+
+    New metric - senior-approval backlog: DANGER orders still PENDING can be
+    approved only by a logistics manager, so the backlog per active logistics
+    manager shows whether the approvals can be cleared or more staff is needed.
+    """
+    risk_by_order = approval_queue.risk_by_order()
+    queued = [(order, risk_by_order[order.order_id]) for order in batch if order.order_id in risk_by_order]
+
+    risk_counts = {"NORMAL": 0, "DANGER": 0, "UNKNOWN": 0}
+    for _, risk in queued:
+        risk_counts[risk] = risk_counts.get(risk, 0) + 1
+
+    def pending_with(risk_level):
+        return sum(1 for order, risk in queued if risk == risk_level and order.status == "PENDING")
+
+    senior_backlog = pending_with("DANGER")
+    active_logistics_managers = sum(
+        1 for employee in employees_catalog.values()
+        if employee.role == "LOGISTICS_MANAGER" and employee.is_active
+    )
+
+    return {
+        "risk_counts": risk_counts,
+        "approved_count": approval_queue.approved_count,
+        "refusals": approval_queue.refusals,
+        "senior_approval_backlog": senior_backlog,
+        "blocked_by_weather_failure": pending_with("UNKNOWN"),
+        "active_logistics_managers": active_logistics_managers,
+        "backlog_per_logistics_manager": (
+            senior_backlog / active_logistics_managers if active_logistics_managers else None
+        ),
+    }
 
 
 def print_business_report(report_data: dict) -> None:
