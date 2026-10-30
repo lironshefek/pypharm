@@ -92,3 +92,27 @@ def test_report_without_approval_data_keeps_stage_1_shape():
 
     assert "weather_approval" not in report
     assert report["total_orders"] == 1
+
+
+def test_report_counts_orders_approved_despite_an_integrity_issue(noa, employees):
+    # Assigned employees: unknown, inactive (Dana), valid (Aya), unknown again
+    orders = [
+        TransferOrder("ORD-1", "WH-CENTRAL", "STORE-TLV", 1, handled_by_employee_id="EMP-999"),
+        TransferOrder("ORD-2", "WH-CENTRAL", "STORE-TLV", 1, handled_by_employee_id="EMP-102"),
+        TransferOrder("ORD-3", "WH-CENTRAL", "STORE-TLV", 1, handled_by_employee_id="EMP-101"),
+        TransferOrder("ORD-4", "WH-CENTRAL", "STORE-TLV", 1, handled_by_employee_id="EMP-999"),
+    ]
+    queue = ApprovalQueue()
+    for order in orders[:3]:
+        queue.submit(order, "NORMAL", NORMAL_ROLES)
+    queue.submit(orders[3], "DANGER", DANGER_ROLES)
+    for order in orders:
+        queue.try_approve(order.order_id, noa)
+
+    weather = generate_business_report(OrderBatch(orders), queue, employees)["weather_approval"]
+
+    # ORD-1 (unknown) and ORD-2 (inactive) were shipped; ORD-4 is still waiting, so not counted
+    assert weather["approved_with_integrity_issue"] == 2
+    assert weather["integrity_issue_orders"] == ["ORD-1", "ORD-2"]
+    # Approval replaced the handler, which is why the original assignment must be remembered
+    assert orders[0].handled_by_employee_id == "EMP-105"
