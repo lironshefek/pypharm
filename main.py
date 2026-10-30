@@ -105,9 +105,9 @@ def run_combined_process(locations, employees, data_dir) -> None:
     print(f"   Blocked by weather-service failure: {weather['blocked_by_weather_failure']} "
           f"(nobody may approve without a weather check)")
 
-    print("\nROUND 2 - the service is back: heat wave in Haifa (35C, mock data):")
+    print("\nROUND 2 - the service is back; waiting orders are re-checked: heat wave in Haifa (35C, mock data):")
     waiting = [order for order in orders if order.status == "PENDING"]
-    queue = ApprovalQueue()
+    # Same queue: an UNKNOWN order stays in it and gets its real risk on the re-check
     queue_orders_for_approval(
         queue, waiting, locations_by_id,
         WeatherService(demo_config, client=MockWeatherClient({haifa_coords: 35.0})), employees_by_id,
