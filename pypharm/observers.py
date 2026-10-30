@@ -15,6 +15,7 @@ class ApprovalRequiredEvent:
     risk_level: str
     employee_id: str | None = None
     order: object | None = None
+    employees_catalog: dict | None = None
 
 
 class ApprovalEventPublisher:
@@ -56,9 +57,8 @@ class IntegrityAlertObserver:
     def update(self, event: ApprovalRequiredEvent) -> None:
         if event.order is None:
             return
-        is_valid, errors = validate_employees_integrity(
-            [event.order], self.employees_catalog
-        )
+        catalog = event.employees_catalog if event.employees_catalog is not None else self.employees_catalog
+        is_valid, errors = validate_employees_integrity([event.order], catalog)
         if not is_valid:
             self.alerts.extend(errors)
             for error in errors:

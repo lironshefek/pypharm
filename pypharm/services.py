@@ -43,8 +43,7 @@ class WeatherService:
             client = WeatherAPIClient(self.config) if self.config.is_live_mode() else MockWeatherClient()
         self.client = client
         self.source = "live" if isinstance(client, WeatherAPIClient) else "mock"
-        self.integrity_observer = IntegrityAlertObserver()
-        default_observers = [AuditLogObserver(), self.integrity_observer]
+        default_observers = [AuditLogObserver(), IntegrityAlertObserver()]
         self.approval_events = ApprovalEventPublisher(
             default_observers if observers is None else observers
         )
@@ -132,8 +131,6 @@ class WeatherService:
 
         # Only dangerous weather raises an approval event and notifies observers.
         if risk_level == "DANGER":
-            if employees_catalog is not None:
-                self.integrity_observer.employees_catalog = employees_catalog
             self.approval_events.publish(
                 ApprovalRequiredEvent(
                     order_id=getattr(order, "order_id", None),
@@ -141,6 +138,7 @@ class WeatherService:
                     risk_level=risk_level,
                     employee_id=getattr(order, "handled_by_employee_id", None),
                     order=order,
+                    employees_catalog=employees_catalog,
                 )
             )
 
