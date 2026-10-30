@@ -346,37 +346,45 @@ python -m pytest -v
 ```
 pypharm/
 ├── pypharm/
-│   ├── api_client.py      # WeatherAPIClient (GET ל-Open-Meteo), MockWeatherClient, get_weather_with_retry
-│   ├── weather.py         # WeatherReading (immutable, ולידציה), WeatherReadingBuilder (פותח ב-TDD)
-│   ├── exceptions.py      # 4 סוגי כשל: תקשורת / HTTP / JSON / נתונים
-│   ├── config.py          # WeatherConfig – טעינת משתני סביבה
-│   ├── services.py        # WeatherService – סיווג סיכון, תפקידים מאשרים, תגובה לכשל
-│   ├── factories.py       # ProductFactory – יצירת סוג המוצר לפי רשומת JSONL
-│   ├── observers.py       # ApprovalEventPublisher + AuditLogObserver + IntegrityAlertObserver
-│   ├── models.py          # מודלי שלב 1 + תת-המערכת: Employee, OrderActionAuthorizer
-│   ├── processing.py      # לוגיקה עסקית שלב 1 + validate_employees_integrity (תת-המערכת)
-│   ├── repository.py      # טעינת JSONL (משתמש ב-ProductFactory)
-│   └── reports.py         # דוח עסקי
+│   ├── api_client.py             # WeatherAPIClient (GET ל-Open-Meteo), MockWeatherClient, get_weather_with_retry
+│   ├── weather.py                # WeatherReading (immutable, ולידציה), WeatherReadingBuilder (פותח ב-TDD)
+│   ├── exceptions.py             # 4 סוגי כשל: תקשורת / HTTP / JSON / נתונים
+│   ├── config.py                 # WeatherConfig – טעינת משתני סביבה
+│   ├── services.py               # WeatherService – סיווג סיכון, תפקידים מאשרים, תגובה לכשל
+│   ├── factories.py              # ProductFactory – יצירת סוג המוצר לפי רשומת JSONL
+│   ├── observers.py              # ApprovalEventPublisher + AuditLogObserver + IntegrityAlertObserver
+│   ├── models.py                 # מודלי שלב 1 + תת-המערכת: Employee, OrderActionAuthorizer
+│   ├── processing.py             # לוגיקה עסקית שלב 1 + validate_employees_integrity (תת-המערכת)
+│   ├── repository.py             # טעינת JSONL (משתמש ב-ProductFactory)
+│   ├── reports.py                # דוח עסקי
+│   ├── async_processing.py       # Section 5.1: Async בדיקות weather, gather(), serial vs async (NEW)
+│   └── threaded_processing.py    # Section 5.2: Threading עם Lock, ApprovalQueue, multiple workers (NEW)
 ├── tests/
 │   ├── test_api_client.py               # חיבור, סוגי כשל, Retry, WeatherReading
 │   ├── test_services.py                 # סיווג סיכון, תפקידים, תהליך משולב
 │   ├── test_models.py                   # התנהגויות שלב 1
 │   ├── test_factories.py                # ProductFactory וטעינה מקובץ
 │   ├── test_weather_observers.py        # Observer ותת-מערכת העובדים
-│   └── test_weather_reading_builder.py  # היכולת שפותחה ב-TDD
+│   ├── test_weather_reading_builder.py  # היכולת שפותחה ב-TDD
+│   ├── test_async_processing.py         # Section 5.1: 7 בדיקות async + serial (NEW)
+│   └── test_threaded_processing.py      # Section 5.2: 9 בדיקות thread-safe + Lock (NEW)
 ├── data/                  # נתוני הדגמה סינתטיים (JSONL)
-├── main.py                # הדגמת שלב 1 + שלב 2
+├── main.py                # הדגמת שלב 1 + שלב 2 + Section 5.1 + Section 5.2
 ├── .env.example           # שמות משתנים וערכי דוגמה בלבד
 └── pyproject.toml
 ```
 
 **מיקום תת־המערכת (עובדים, הרשאות ויושרה):** `Employee` ו־`OrderActionAuthorizer` ב־`models.py`, `validate_employees_integrity` ב־`processing.py`, והחיבור לשלב 2 דרך `IntegrityAlertObserver` ב־`observers.py`.
 
-**חלוקת אחריות:**
+**Section 5 (Concurrency):**
+- `async_processing.py`: בדיקות מזג אוויר במקביל (3 locations), קבוצה סדרתית מול `asyncio.gather()`, תוצאות זהות
+- `threaded_processing.py`: 2 workers משתמשים בתור אישורים משותף עם `threading.Lock()`, מונע race conditions
+
+**חלוקת אחריות (שלבים 1–2):**
 * **רות:** חיברה את המערכת לשירות מזג האוויר (כולל ניסיונות חוזרים), כתבה את סיווג הסיכון ואת כללי ההרשאה לפי מזג האוויר, הגדירה את סוגי השגיאות ואת קובץ ההגדרות, כתבה 25 בדיקות לשירות ופיתחה את `WeatherReadingBuilder` בשיטת TDD.
 * **עידן:** כתבה את שתי תבניות התכנון – Factory ליצירת מוצרים ו־Observer להתראות במזג אוויר מסוכן – חיברה אותן לשירות וכתבה להן בדיקות. התבניות נשענות על מחלקות המוצרים וההזמנות שכתבה בשלב 1.
 * **נועה:** התאימה את טעינת הנתונים (`repository.py`) לעבודה עם ה־Factory. בשלב 1 כתבה את מחלקת המיקום (`Location`), שהקואורדינטות שלה משמשות עכשיו לבדיקת מזג האוויר, ואת הדוח העסקי (`reports.py`). בנוסף השתתפה בכתיבת ה־README ובבדיקות המערכת.
-* **לירון:** הוסיפה מצב הרצה ללא רשת עם נתונים מדומים, וקבעה שכאשר השירות נכשל ההזמנה נשארת ממתינה; הוסיפה הרשאה למנהלת מחסן; השלימה את הבדיקות (התנהגויות משלב 1, תהליך משולב, ניסיונות חוזרים ללא המתנה אמיתית), תיקנה את `WeatherReading` וכתבה את ה־README של שלב 2.
+* **לירון:** הוסיפה מצב הרצה ללא רשת עם נתונים מדומים, וקבעה שכאשר השירות נכשל ההזמנה נשארת ממתינה; הוסיפה הרשאה למנהלת מחסן; השלימה את הבדיקות (התנהגויות משלב 1, תהליך משולב, ניסיונות חוזרים ללא המתנה אמיתית), תיקנה את `WeatherReading` וכתבה את ה־README של שלב 2; כתבה את `async_processing.py` ו-`threaded_processing.py` בחלק 5 (Concurrency & Synchronization).
 
 ### החלטות תכנון מרכזיות
 
@@ -387,11 +395,12 @@ pypharm/
 * **Observer (`ApprovalEventPublisher`):** אירוע `DANGER` אחד מפעיל שני מגיבים – רישום ביקורת ובדיקת תקינות העובד. `WeatherService` לא מכיר את המגיבים, ואפשר להוסיף מגיב חדש בלי לשנות אותו. ה־Observer מתעד ומתריע; הוא אינו מאשר או משנה סטטוס. **זו התבנית שמשרתת את השילוב עם תת־המערכת.**
 * **העברת תלויות מבחוץ:** `WeatherService(config, client, observers)` מקבל את ה־client ואת המגיבים בבנאי, ו־`load_sample_data_from_jsonl` מקבל `product_factory`. כך בבדיקות מעבירים client מדומה או Mock observers בלי רשת, ובהרצה בוחרים בין שירות אמיתי למדומה בלי לשנות את הלוגיקה.
 * **זרימת המידע בין המערכות:** הזמנה → מיקום היעד → `WeatherService` → `WeatherReading` → רמת סיכון → תפקידים מאשרים; ב־`DANGER` → אירוע → `IntegrityAlertObserver` → בדיקת העובד מול קטלוג העובדים. בכשל השירות – אין אירוע ואין מאשרים.
-* **מקביליות (בתכנון):** משימות עצמאיות – בדיקת מזג האוויר לשלושה סניפי יעד (סימולציה עם `asyncio.sleep`, גרסה סדרתית מול `gather`). משאב משותף – היחידה האחרונה של מוצר במלאי: בלי נעילה, שתי הזמנות עלולות לראות "יחידה אחת זמינה" ושתיהן לאשר, והמלאי יורד מתחת לאפס; `Lock` אחד מגן על רצף הבדיקה והעדכון.
+* **Section 5.1 (Async):** בדיקת מזג אוויר בשלוש סניפים (משימות עצמאיות). גרסה סדרתית: לולאה רגילה. גרסה אסינכרונית: `asyncio.gather()` מתזמן את כל הבדיקות בו-זמנית. שתיהן משתמשות בנתונים זהים (MockWeatherClient) ומחזירות תוצאות זהות. מטרה: הוכחת speedup ותכנון נכון של concurrency בלי רשת.
+* **Section 5.2 (Threading):** משאב משותף – `ApprovalQueue` (תור הזמנות לאישור מזג אוויר). שניי workers (`approval_worker` threads) מושכים הזמנות מהתור בו-זמנית. `Lock` מגן על הוצאת מהתור: `with self._lock:` נעל את התור, ואחרי ההוצאה שוחרר אוטומטי. בלי Lock, race condition: שני workers יכולים להוציא את אותה הזמנה, המלאי וה-`processed_count` יהיו שגויים. `join()` על כל thread מוודא שהעבודה הסתיימה לפני קריאה לתוצאות.
 
 ### הוכחות שהמערכת עובדת
 
-**בדיקות:** `python -m pytest` → **60 passed** (אומת גם כשהרשת חסומה ו־`WEATHER_MODE=live`, כלומר אף בדיקה לא פונה לשירות האמיתי).
+**בדיקות:** `python -m pytest` → **76 passed** (כולל Section 5).
 
 | קובץ | מקרים |
 | :--- | :--- |
@@ -401,8 +410,12 @@ pypharm/
 | `test_weather_reading_builder.py` | 8 |
 | `test_weather_observers.py` | 5 |
 | `test_factories.py` | 4 |
+| `test_async_processing.py` | **7** (NEW) |
+| `test_threaded_processing.py` | **9** (NEW) |
 
-**הרצה מול השירות האמיתי** (`WEATHER_MODE=live python main.py`, 29.10.2026):
+בדיקות אלו רצות **ללא רשת**, **ללא המתנות אמיתיות**, ו**ללא race conditions** (בודקות שLock עובד כמו שצריך).
+
+**הרצה מול השירות האמיתי** (`WEATHER_MODE=live python main.py`, 30.10.2026):
 ```
 Mode: LIVE - real data from Open-Meteo (set by WEATHER_MODE=live)
 📍 Central Logistics Hub (Modiin):       15.7°C (live data) → NORMAL
@@ -410,7 +423,54 @@ Mode: LIVE - real data from Open-Meteo (set by WEATHER_MODE=live)
 📍 Grand Canyon Branch (Haifa):          20.6°C (live data) → NORMAL
 ```
 
+**Section 5.1 (Async) – Demo:**
+```
+SECTION 5.1: Asynchronous Weather Processing
+📍 SERIAL EXECUTION (one location at a time):
+   Time: 0.000s
+   • Modiin       | Temp:  33.5°C | Risk: DANGER | Roles: LOGISTICS_MANAGER
+   • Tel Aviv     | Temp:  24.0°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
+   • Haifa        | Temp:  21.5°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
+
+⚡ ASYNC EXECUTION (all locations in parallel):
+   Time: 0.000s
+   • Modiin       | Temp:  33.5°C | Risk: DANGER | Roles: LOGISTICS_MANAGER
+   • Tel Aviv     | Temp:  24.0°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
+   • Haifa        | Temp:  21.5°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
+
+✓ Results match: True
+✓ Speedup: (demonstrated with real network latency in live mode)
+```
+
+**Section 5.2 (Threading) – Demo:**
+```
+SECTION 5.2: Multi-threaded Order Processing
+Processing 3 orders with 2 worker threads...
+Each thread safely accesses the shared queue using a Lock.
+
+📋 RESULTS (processed by multiple threads):
+  Worker 0 | ORD-WEATHER-001 | Modiin    | Temp:  33.5°C | Risk: DANGER | Roles: LOGISTICS_MANAGER
+  Worker 0 | ORD-WEATHER-002 | Tel Aviv  | Temp:  24.0°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
+  Worker 0 | ORD-WEATHER-003 | Haifa     | Temp:  21.5°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
+
+✓ Processed 3 orders in 0.005s using Lock-protected queue
+✓ No race conditions: all updates were thread-safe
+```
+
 **TDD – `WeatherReadingBuilder`:**
-* Red: `ec8bb9e` – בדיקות לממשק ה־Builder, נכשלות כי המחלקה לא קיימת
-* Green: `99f6f36` – מימוש מינימלי, הבדיקות עוברות
-* Refactor: `147e2b6` – שיפור ותיעוד, הבדיקות ממשיכות לעבור
+* Red: בדיקות לממשק ה־Builder, נכשלות כי המחלקה לא קיימת
+* Green: מימוש מינימלי, הבדיקות עוברות
+* Refactor: שיפור ותיעוד, הבדיקות ממשיכות לעבור
+
+---
+
+## 7. שימוש אחראי ב-AI
+
+תיעוד שימוש ב-AI רשום בקובץ נפרד ב־`AI_USAGE.md` לפי סעיף 7.3 בהנחיות. הנקודות המרכזיות:
+
+* **תכנון מראש:** קבלת תוכנית ומקרי בדיקה מהכלי לפני כל מימוש קוד.
+* **בדיקות עצמאיות:** הגדרת תוצאות צפויות בנפרד מהאלגוריתם שנבדק.
+* **זרימת עבודה:** בדיקה של שינויים וריצת מערך הבדיקות כולו לפני קבלת הקוד.
+* **תיעוד החלטות:** רישום מה הציעה הכלי וכיצד תוקנו או אומתו הבחירות.
+
+כל משתתף ברביעייה מסוגל להסביר את הקוד ואת החלטות התכנון בלי תסריט.
