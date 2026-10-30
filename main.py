@@ -1,6 +1,8 @@
 from itertools import islice
 from pathlib import Path
 
+import asyncio
+
 from pypharm import (
     Employee,
     InventoryItem,
@@ -17,6 +19,8 @@ from pypharm import (
     open_orders_generator,
     WeatherConfig,
     WeatherService,
+    demo_async_vs_serial,
+    demo_threaded_processing,
 )
 from pypharm.processing import (
     InventoryRegistry,
@@ -252,6 +256,16 @@ def main():
         print(f"   Temperature: {result['temperature']}°C ({result['source']} data)")
         print(f"   Risk Level: {result['risk_level']}")
         print(f"   Approval Roles: {', '.join(result['required_roles'])}")
+
+    print("\n" + "="*60)
+    print("SECTION 5.1: Asynchronous Weather Processing")
+    print("="*60)
+    asyncio.run(demo_async_vs_serial())
+
+    print("\n" + "="*60)
+    print("SECTION 5.2: Multi-threaded Order Processing")
+    print("="*60)
+    demo_threaded_processing()
 
 
 if __name__ == "__main__":

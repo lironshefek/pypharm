@@ -44,6 +44,18 @@ from .observers import (
     AuditLogObserver,
     IntegrityAlertObserver,
 )
+from .async_processing import (
+    check_weather_async,
+    check_multiple_locations_async,
+    check_multiple_locations_serial,
+    demo_async_vs_serial,
+)
+from .threaded_processing import (
+    ApprovalQueue,
+    approval_worker,
+    process_orders_threaded,
+    demo_threaded_processing,
+)
 
 __all__ = [
     # Models
@@ -84,4 +96,14 @@ __all__ = [
     "ApprovalRequiredEvent",
     "AuditLogObserver",
     "IntegrityAlertObserver",
+    # Async Processing (Section 5.1)
+    "check_weather_async",
+    "check_multiple_locations_async",
+    "check_multiple_locations_serial",
+    "demo_async_vs_serial",
+    # Threaded Processing (Section 5.2)
+    "ApprovalQueue",
+    "approval_worker",
+    "process_orders_threaded",
+    "demo_threaded_processing",
 ]
