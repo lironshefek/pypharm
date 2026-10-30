@@ -201,7 +201,7 @@ class TestWeatherReading:
         reading = WeatherReading(temperature_2m=20.5, rain=2.1)
 
         with pytest.raises(AttributeError):
-            reading.temperature_2m = 40.0
+            setattr(reading, "temperature_2m", 40.0)  # deliberate write to a frozen field
 
         assert reading.temperature_2m == 20.5
 
