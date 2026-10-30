@@ -227,3 +227,42 @@ def test_order_with_unknown_destination_is_rejected():
 
     with pytest.raises(ValueError, match="unknown destination 'STORE-EILAT'"):
         queue_orders_for_approval(ApprovalQueue(), [order], {}, WeatherService(client=MockWeatherClient()))
+
+
+def test_unknown_order_is_rechecked_in_the_same_queue(aya, noa):
+    order = make_order("ORD-1", "STORE-HAIFA")
+    queue = ApprovalQueue()
+    queue.submit(order, "UNKNOWN", UNKNOWN_ROLES)
+    assert queue.try_approve("ORD-1", aya) == NOT_AUTHORIZED  # no weather check yet
+
+    # The weather service is back: the same order gets its real risk
+    queue.submit(order, "DANGER", DANGER_ROLES)
+
+    assert queue.risk_by_order() == {"ORD-1": "DANGER"}
+    assert len(queue) == 1  # still one order, not two
+    assert queue.try_approve("ORD-1", noa) == NOT_AUTHORIZED
+    assert queue.try_approve("ORD-1", aya) == APPROVED
+    assert order.status == "IN_TRANSIT"
+
+
+def test_order_with_a_known_risk_is_not_rechecked():
+    order = make_order("ORD-1")
+    queue = ApprovalQueue()
+    queue.submit(order, "DANGER", DANGER_ROLES)
+
+    with pytest.raises(ValueError, match="ORD-1 is already waiting"):
+        queue.submit(order, "NORMAL", NORMAL_ROLES)
+    assert queue.risk_by_order() == {"ORD-1": "DANGER"}
+
+
+def test_recheck_through_the_weather_service_updates_the_risk(aya):
+    haifa = Location("STORE-HAIFA", "Grand Canyon Branch", "STORE", "Haifa", 32.8193, 34.9927)
+    order = make_order("ORD-1", "STORE-HAIFA")
+    queue = ApprovalQueue()
+    queue.submit(order, "UNKNOWN", UNKNOWN_ROLES)
+    heat_wave = WeatherService(client=MockWeatherClient({(32.8193, 34.9927): 35.0}), observers=[])
+
+    queue_orders_for_approval(queue, [order], {"STORE-HAIFA": haifa}, heat_wave)
+
+    assert queue.risk_by_order() == {"ORD-1": "DANGER"}
+    assert queue.try_approve("ORD-1", aya) == APPROVED
