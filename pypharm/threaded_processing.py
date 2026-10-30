@@ -7,19 +7,25 @@ destination and the roles allowed to approve it (NORMAL: warehouse or
 logistics manager, DANGER: logistics manager only, UNKNOWN: nobody).
 
 Managers go over the same pending orders at the same time and try to approve
-them. Approving is a check-then-update sequence:
+them. Approving an order is a check-then-update sequence:
 
     1. is the order still PENDING?
     2. may this manager's role approve this risk level?
     3. move it to IN_TRANSIT and record who approved it
 
 Without a lock, two managers can both see the same order as PENDING before
-either of them updates it - both approve, and the order is approved twice and
-recorded twice. One Lock protects the whole sequence, so only the first
-allowed manager approves; anyone after her is refused.
+either of them updates it - both approve, and the order is approved twice.
+
+Every order has its own Lock, which protects that sequence for that order:
+two managers on the same order take turns, so only the first allowed one
+approves and the other is refused. Managers working on different orders do
+not wait for each other.
+
+A separate short lock protects only the shared statistics (the approval log
+and the refusal counters), which every manager writes to.
 
 The weather check is a network call, so it is done before the order enters
-the queue - never inside the locked section.
+the queue - never inside a locked section.
 """
 
 import logging
@@ -40,82 +46,93 @@ class ApprovalQueue:
 
     def __init__(self, authorizer: OrderActionAuthorizer = None):
         self._authorizer = authorizer or OrderActionAuthorizer()
-        self._pending: dict[str, dict] = {}
-        self._lock = threading.Lock()
+        self._entries: dict[str, dict] = {}
+        self._stats_lock = threading.Lock()
         self._approval_log: list[tuple[str, str, str]] = []
         self._refusals = {self.ALREADY_HANDLED: 0, self.NOT_AUTHORIZED: 0}
 
     def submit(self, order: TransferOrder, risk_level: str, required_roles: list) -> None:
         """
         Add an order with its weather risk and the roles allowed to approve it.
-        An order that is already waiting is rejected.
+        An order that is already in the queue is rejected.
+
+        All orders are submitted before the managers start working.
         """
-        with self._lock:
-            if order.order_id in self._pending:
-                raise ValueError(f"Order {order.order_id} is already waiting for approval")
-            if order.status != "PENDING":
-                raise ValueError(f"Only PENDING orders can wait for approval, {order.order_id} is {order.status}")
-            self._pending[order.order_id] = {
-                "order": order,
-                "risk_level": risk_level,
-                "required_roles": set(required_roles),
-            }
+        if order.order_id in self._entries:
+            raise ValueError(f"Order {order.order_id} is already waiting for approval")
+        if order.status != "PENDING":
+            raise ValueError(f"Only PENDING orders can wait for approval, {order.order_id} is {order.status}")
+        self._entries[order.order_id] = {
+            "order": order,
+            "risk_level": risk_level,
+            "required_roles": set(required_roles),
+            "lock": threading.Lock(),
+        }
 
     def pending_ids(self) -> list[str]:
-        """Snapshot of the order ids still waiting, in arrival order."""
-        with self._lock:
-            return list(self._pending)
+        """Order ids still waiting, in arrival order."""
+        return [order_id for order_id, entry in self._entries.items() if entry["order"].status == "PENDING"]
 
     def try_approve(self, order_id: str, manager: Employee) -> str:
         """
         Approve the order if it is still PENDING and the manager may approve its risk level.
 
+        Only this order's lock is held, so approvals of other orders run at the same time.
+
         Returns:
             APPROVED, ALREADY_HANDLED or NOT_AUTHORIZED.
         """
-        with self._lock:
-            entry = self._pending.get(order_id)
-            if entry is None:
-                return self._refuse(self.ALREADY_HANDLED, order_id, manager)
+        entry = self._entries.get(order_id)
+        if entry is None:
+            raise ValueError(f"Order {order_id} is not in the approval queue")
 
-            if manager.role not in entry["required_roles"]:
-                return self._refuse(self.NOT_AUTHORIZED, order_id, manager)
-            try:
-                # Checks the employee is active and allowed to update statuses, then updates.
-                self._authorizer.authorize_and_update_status(entry["order"], manager, "IN_TRANSIT")
-            except PermissionError:
-                return self._refuse(self.NOT_AUTHORIZED, order_id, manager)
+        with entry["lock"]:
+            order = entry["order"]
+            if order.status != "PENDING":
+                result = self.ALREADY_HANDLED
+            elif manager.role not in entry["required_roles"]:
+                result = self.NOT_AUTHORIZED
+            else:
+                try:
+                    # Checks the employee is active and allowed to update statuses, then updates.
+                    self._authorizer.authorize_and_update_status(order, manager, "IN_TRANSIT")
+                    result = self.APPROVED
+                except PermissionError:
+                    result = self.NOT_AUTHORIZED
 
-            del self._pending[order_id]
-            self._approval_log.append((order_id, manager.name, entry["risk_level"]))
-            return self.APPROVED
+        self._record(result, order_id, manager, entry["risk_level"])
+        return result
 
-    def _refuse(self, reason: str, order_id: str, manager: Employee) -> str:
-        """Count a refused attempt. Called only while holding the lock."""
-        self._refusals[reason] += 1
-        logger.info(f"{manager.name} cannot approve {order_id}: {reason}")
-        return reason
+    def _record(self, result: str, order_id: str, manager: Employee, risk_level: str) -> None:
+        """Update the shared approval log and refusal counters."""
+        with self._stats_lock:
+            if result == self.APPROVED:
+                self._approval_log.append((order_id, manager.name, risk_level))
+            else:
+                self._refusals[result] += 1
+        if result != self.APPROVED:
+            logger.info(f"{manager.name} cannot approve {order_id}: {result}")
 
     @property
     def approved_count(self) -> int:
-        with self._lock:
+        with self._stats_lock:
             return len(self._approval_log)
 
     @property
     def refusals(self) -> dict[str, int]:
         """How many approval attempts were refused, by reason."""
-        with self._lock:
+        with self._stats_lock:
             return dict(self._refusals)
 
     @property
     def approval_log(self) -> list[tuple[str, str, str]]:
         """Copy of the (order_id, manager name, risk level) records, in approval order."""
-        with self._lock:
+        with self._stats_lock:
             return list(self._approval_log)
 
     def __len__(self) -> int:
-        with self._lock:
-            return len(self._pending)
+        """Number of orders still waiting for approval."""
+        return len(self.pending_ids())
 
 
 def queue_orders_for_approval(
@@ -128,7 +145,7 @@ def queue_orders_for_approval(
     """
     Check the weather at each order's destination and put the order in the approval queue.
 
-    Runs before any manager thread starts, so the network calls stay outside the lock.
+    Runs before any manager thread starts, so the network calls stay outside the locks.
     When the weather check fails the risk is UNKNOWN and nobody may approve the order.
     """
     for order in orders:

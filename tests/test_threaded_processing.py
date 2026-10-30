@@ -1,11 +1,14 @@
 """Tests for the shipment approval queue shared by several manager threads."""
 
+import threading
+
 import pytest
 
 from pypharm import (
     ApprovalQueue,
     Employee,
     Location,
+    OrderActionAuthorizer,
     TransferOrder,
     WeatherService,
     queue_orders_for_approval,
@@ -91,6 +94,64 @@ def test_second_approval_of_the_same_order_is_refused(aya, noa):
 
     assert queue.approval_log == [("ORD-001", "noa", "NORMAL")]
     assert order.handled_by_employee_id == "EMP-105"
+
+
+class SlowAuthorizer(OrderActionAuthorizer):
+    """Pauses in the middle of approving one chosen order until the test releases it."""
+
+    def __init__(self, slow_order_id):
+        super().__init__()
+        self.slow_order_id = slow_order_id
+        self.inside = threading.Event()
+        self.release = threading.Event()
+
+    def authorize_and_update_status(self, order, employee, new_status):
+        if order.order_id == self.slow_order_id:
+            self.inside.set()
+            assert self.release.wait(timeout=5)
+        super().authorize_and_update_status(order, employee, new_status)
+
+
+@pytest.fixture
+def two_orders_mid_approval(aya):
+    """ORD-A is in the middle of being approved by Aya (its lock is held)."""
+    authorizer = SlowAuthorizer("ORD-A")
+    queue = ApprovalQueue(authorizer)
+    queue.submit(make_order("ORD-A"), "NORMAL", NORMAL_ROLES)
+    queue.submit(make_order("ORD-B"), "NORMAL", NORMAL_ROLES)
+    aya_thread = threading.Thread(target=queue.try_approve, args=("ORD-A", aya))
+    aya_thread.start()
+    assert authorizer.inside.wait(timeout=5)
+    yield queue, authorizer
+    authorizer.release.set()
+    aya_thread.join()
+
+
+def test_different_order_is_approved_without_waiting(two_orders_mid_approval, noa):
+    queue, authorizer = two_orders_mid_approval
+    results = []
+    noa_thread = threading.Thread(target=lambda: results.append(queue.try_approve("ORD-B", noa)))
+
+    noa_thread.start()
+    noa_thread.join(timeout=1)
+
+    assert not noa_thread.is_alive()  # finished while Aya is still in the middle of ORD-A
+    assert results == [APPROVED]
+
+
+def test_same_order_waits_and_is_then_refused(two_orders_mid_approval, noa):
+    queue, authorizer = two_orders_mid_approval
+    results = []
+    noa_thread = threading.Thread(target=lambda: results.append(queue.try_approve("ORD-A", noa)))
+
+    noa_thread.start()
+    noa_thread.join(timeout=0.2)
+    assert noa_thread.is_alive()  # waiting for ORD-A's lock
+
+    authorizer.release.set()
+    noa_thread.join(timeout=5)
+    assert results == [ALREADY_HANDLED]
+    assert queue.approval_log == [("ORD-A", "Aya", "NORMAL")]
 
 
 def test_many_managers_racing_for_one_order_approve_it_once():
