@@ -69,6 +69,10 @@ class ApprovalQueue:
             "lock": threading.Lock(),
         }
 
+    def risk_by_order(self) -> dict[str, str]:
+        """Weather risk level recorded for every order in the queue."""
+        return {order_id: entry["risk_level"] for order_id, entry in self._entries.items()}
+
     def pending_ids(self) -> list[str]:
         """Order ids still waiting, in arrival order."""
         return [order_id for order_id, entry in self._entries.items() if entry["order"].status == "PENDING"]
