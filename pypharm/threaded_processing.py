@@ -44,6 +44,9 @@ class ApprovalQueue:
     ALREADY_HANDLED = "ALREADY_HANDLED"
     NOT_AUTHORIZED = "NOT_AUTHORIZED"
 
+    # Risk recorded when the weather check failed; such an order may be re-checked
+    UNKNOWN_RISK = "UNKNOWN"
+
     def __init__(self, authorizer: OrderActionAuthorizer = None):
         self._authorizer = authorizer or OrderActionAuthorizer()
         self._entries: dict[str, dict] = {}
@@ -54,11 +57,20 @@ class ApprovalQueue:
     def submit(self, order: TransferOrder, risk_level: str, required_roles: list) -> None:
         """
         Add an order with its weather risk and the roles allowed to approve it.
-        An order that is already in the queue is rejected.
 
-        All orders are submitted before the managers start working.
+        An order already in the queue is rejected - unless its weather check
+        failed (UNKNOWN) and it is still PENDING: then this is the re-check,
+        and the order gets its real risk and approvers in place.
+
+        Orders are submitted before the managers of that round start working.
         """
         self.validate_submission(order)
+        entry = self._entries.get(order.order_id)
+        if entry is not None:
+            with entry["lock"]:
+                entry["risk_level"] = risk_level
+                entry["required_roles"] = set(required_roles)
+            return
         self._entries[order.order_id] = {
             "order": order,
             "risk_level": risk_level,
@@ -68,7 +80,8 @@ class ApprovalQueue:
 
     def validate_submission(self, order: TransferOrder) -> None:
         """Raise ValueError if the order cannot enter the queue. Changes nothing."""
-        if order.order_id in self._entries:
+        entry = self._entries.get(order.order_id)
+        if entry is not None and entry["risk_level"] != self.UNKNOWN_RISK:
             raise ValueError(f"Order {order.order_id} is already waiting for approval")
         if order.status != "PENDING":
             raise ValueError(f"Only PENDING orders can wait for approval, {order.order_id} is {order.status}")
