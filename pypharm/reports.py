@@ -71,6 +71,10 @@ def _weather_approval_summary(batch, approval_queue, employees_catalog: dict) ->
     New metric - senior-approval backlog: DANGER orders still PENDING can be
     approved only by a logistics manager, so the backlog per active logistics
     manager shows whether the approvals can be cleared or more staff is needed.
+
+    Second metric - shipped despite an integrity issue: orders that were
+    approved although their assigned employee is unknown or inactive in the
+    employees catalog, so the shipment and its assignment can be reviewed.
     """
     risk_by_order = approval_queue.risk_by_order()
     queued = [(order, risk_by_order[order.order_id]) for order in batch if order.order_id in risk_by_order]
@@ -83,6 +87,18 @@ def _weather_approval_summary(batch, approval_queue, employees_catalog: dict) ->
         return sum(1 for order, risk in queued if risk == risk_level and order.status == "PENDING")
 
     senior_backlog = pending_with("DANGER")
+
+    # Shipped orders whose assigned employee (before approval) is unknown or inactive
+    assigned = approval_queue.assigned_employee_by_order()
+    integrity_issue_orders = []
+    for order, _ in queued:
+        employee_id = assigned[order.order_id]
+        if order.status == "PENDING" or employee_id is None:
+            continue
+        employee = employees_catalog.get(employee_id)
+        if employee is None or not employee.is_active:
+            integrity_issue_orders.append(order.order_id)
+
     active_logistics_managers = sum(
         1 for employee in employees_catalog.values()
         if employee.role == "LOGISTICS_MANAGER" and employee.is_active
@@ -98,6 +114,8 @@ def _weather_approval_summary(batch, approval_queue, employees_catalog: dict) ->
         "backlog_per_logistics_manager": (
             senior_backlog / active_logistics_managers if active_logistics_managers else None
         ),
+        "approved_with_integrity_issue": len(integrity_issue_orders),
+        "integrity_issue_orders": integrity_issue_orders,
     }
 
 
@@ -165,5 +183,9 @@ def print_business_report(report_data: dict) -> None:
         else:
             print(f"   - Backlog per active logistics manager: {per_manager:.1f} "
                   f"({weather['active_logistics_managers']} active)")
+        if weather["approved_with_integrity_issue"]:
+            print(f"   [WARNING] Shipped although assigned to an unknown/inactive employee: "
+                  f"{weather['approved_with_integrity_issue']} ({', '.join(weather['integrity_issue_orders'])})")
+            print("   Recommendation: review these shipments and fix the employee assignment.")
 
     print("------------------------------------------------------------\n")

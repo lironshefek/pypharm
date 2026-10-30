@@ -75,6 +75,8 @@ class ApprovalQueue:
             "order": order,
             "risk_level": risk_level,
             "required_roles": set(required_roles),
+            # Approval replaces the order's handler, so keep who was assigned before it
+            "assigned_employee_id": order.handled_by_employee_id,
             "lock": threading.Lock(),
         }
 
@@ -89,6 +91,10 @@ class ApprovalQueue:
     def risk_by_order(self) -> dict[str, str]:
         """Weather risk level recorded for every order in the queue."""
         return {order_id: entry["risk_level"] for order_id, entry in self._entries.items()}
+
+    def assigned_employee_by_order(self) -> dict[str, str | None]:
+        """Employee each order was assigned to when it entered the queue."""
+        return {order_id: entry["assigned_employee_id"] for order_id, entry in self._entries.items()}
 
     def pending_ids(self) -> list[str]:
         """Order ids still waiting, in arrival order."""
