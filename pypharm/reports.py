@@ -143,4 +143,27 @@ def print_business_report(report_data: dict) -> None:
     else:
         print("   [OK] No delays detected for critical orders.")
 
+    weather = report_data.get("weather_approval")
+    if weather is not None:
+        print("\n6. Weather-Based Shipment Approval (Stage 2):")
+        risks = weather["risk_counts"]
+        print(f"   - Orders by destination weather: NORMAL {risks['NORMAL']}, "
+              f"DANGER {risks['DANGER']}, UNKNOWN {risks['UNKNOWN']}")
+        print(f"   - Approved: {weather['approved_count']} | "
+              f"Refused - already approved: {weather['refusals']['ALREADY_HANDLED']}, "
+              f"role not allowed: {weather['refusals']['NOT_AUTHORIZED']}")
+        print(f"   - Blocked by weather-service failure (nobody may approve): "
+              f"{weather['blocked_by_weather_failure']}")
+        print(f"   - Senior-approval backlog (DANGER orders waiting for a logistics manager): "
+              f"{weather['senior_approval_backlog']}")
+        per_manager = weather["backlog_per_logistics_manager"]
+        if weather["senior_approval_backlog"] == 0:
+            print("   [OK] No hot/cold-weather orders are waiting for senior approval.")
+        elif per_manager is None:
+            print("   [WARNING] No active logistics manager - these orders cannot be shipped.")
+            print("   Recommendation: assign or activate a logistics manager.")
+        else:
+            print(f"   - Backlog per active logistics manager: {per_manager:.1f} "
+                  f"({weather['active_logistics_managers']} active)")
+
     print("------------------------------------------------------------\n")
