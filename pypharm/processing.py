@@ -163,6 +163,7 @@ def process_order_lifecycle(
     employee: Employee = None,
     authorizer: OrderActionAuthorizer = None,
 ) -> bool:
+    """Validate the whole action before changing inventory, status or audit."""
     if action == "RESERVE":
         for item in order.items:
             inv = source_inventory.get(item.sku)
@@ -175,50 +176,47 @@ def process_order_lifecycle(
                 dest_inventory[item.sku].add_incoming(item.quantity)
         return True
 
-    elif action == "DISPATCH":
-        # Check authorization BEFORE modifying inventory
-        if employee is not None and authorizer is not None:
-            authorizer.authorize_and_update_status(order, employee, "IN_TRANSIT")
-        else:
-            order.status = "IN_TRANSIT"
+    target_status = {"DISPATCH": "IN_TRANSIT", "DELIVER": "DELIVERED", "CANCEL": "CANCELLED"}.get(action)
+    if target_status is None:
+        return False
+    if action == "CANCEL" and order.status != "PENDING":
+        return False
 
-        # Only modify inventory after authorization passes
-        for item in order.items:
-            source_inventory[item.sku].dispatch_reserved(item.quantity)
-        return True
+    use_authorizer = employee is not None and authorizer is not None
+    if use_authorizer:
+        # Permission checks must not update the order or create an audit record.
+        authorizer.validate_status_update(employee, target_status)
 
-    elif action == "DELIVER":
-        # Check authorization BEFORE modifying inventory
-        if employee is not None and authorizer is not None:
-            authorizer.authorize_and_update_status(order, employee, "DELIVERED")
-        else:
-            order.status = "DELIVERED"
+    # Build the complete update plan first. A missing or invalid later item
+    # must not leave earlier inventory items partially dispatched or received.
+    updates = []
+    for item in order.items:
+        amount = item.quantity
+        if action in ("DISPATCH", "CANCEL"):
+            source = source_inventory[item.sku]
+            verb = "dispatch" if action == "DISPATCH" else "release"
+            if amount <= 0 or amount > source.reserved:
+                raise ValueError(f"Cannot {verb} {amount}. Reserved: {source.reserved}")
+            update = source.dispatch_reserved if action == "DISPATCH" else source.release_reservation
+            updates.append((update, amount))
 
-        # Only modify inventory after authorization passes
-        for item in order.items:
-            if item.sku in dest_inventory:
-                dest_inventory[item.sku].receive_incoming(item.quantity)
-        return True
+        if action in ("DELIVER", "CANCEL") and item.sku in dest_inventory:
+            destination = dest_inventory[item.sku]
+            verb = "receive" if action == "DELIVER" else "reduce incoming by"
+            if amount <= 0 or amount > destination.incoming:
+                raise ValueError(f"Cannot {verb} {amount}. Incoming: {destination.incoming}")
+            update = destination.receive_incoming if action == "DELIVER" else destination.reduce_incoming
+            updates.append((update, amount))
 
-    elif action == "CANCEL":
-        # Check authorization BEFORE modifying inventory
-        # Only cancel if order is still PENDING
-        if order.status != "PENDING":
-            return False
+    for update, amount in updates:
+        update(amount)
 
-        if employee is not None and authorizer is not None:
-            authorizer.authorize_and_update_status(order, employee, "CANCELLED")
-        else:
-            order.status = "CANCELLED"
-
-        # Only modify inventory after authorization passes (status is now CANCELLED)
-        for item in order.items:
-            source_inventory[item.sku].release_reservation(item.quantity)
-            if item.sku in dest_inventory:
-                dest_inventory[item.sku].reduce_incoming(item.quantity)
-        return True
-
-    return False
+    # All inventory checks succeeded; only now commit the order and its audit.
+    if use_authorizer:
+        authorizer.authorize_and_update_status(order, employee, target_status)
+    else:
+        order.status = target_status
+    return True
 
 
 def validate_employees_integrity(

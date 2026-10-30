@@ -489,7 +489,8 @@ class OrderActionAuthorizer:
         allowed_roles = self._permissions.get(action_name, set())
         return employee.role in allowed_roles
 
-    def authorize_and_update_status(self, order: TransferOrder, employee: Employee, new_status: str):
+    def validate_status_update(self, employee: Employee, new_status: str) -> str:
+        """Validate permission and return the normalized status without changing state."""
         if not isinstance(employee, Employee):
             raise ValueError(f"Must provide a valid Employee instance, got: {type(employee).__name__}")
 
@@ -498,20 +499,23 @@ class OrderActionAuthorizer:
                 f"Action denied: Employee {employee.employee_id!r} is inactive."
             )
 
-        # Determine the action being performed based on new_status
-        if new_status == "CANCELLED":
-            action_name = "CANCEL_ORDER"
-        else:
-            action_name = "UPDATE_STATUS"
+        clean_status = _require_non_empty_str(new_status, "Status").upper()
+        if clean_status not in TransferOrder.VALID_STATUSES:
+            raise ValueError(f"Status must be one of {TransferOrder.VALID_STATUSES}, got: {new_status!r}")
+        action_name = "CANCEL_ORDER" if clean_status == "CANCELLED" else "UPDATE_STATUS"
 
         if not self.is_authorized(employee, action_name):
             raise PermissionError(
                 f"Permission denied: Employee {employee.name!r} with role {employee.role!r} "
                 f"is not authorized for action '{action_name}'."
             )
+        return clean_status
 
+    def authorize_and_update_status(self, order: TransferOrder, employee: Employee, new_status: str):
+        clean_status = self.validate_status_update(employee, new_status)
+        action_name = "CANCEL_ORDER" if clean_status == "CANCELLED" else "UPDATE_STATUS"
         old_status = order.status
-        order.status = new_status
+        order.status = clean_status
         order.assign_employee(employee.employee_id)
 
         self._action_history.append({
@@ -519,7 +523,7 @@ class OrderActionAuthorizer:
             "employee_id": employee.employee_id,
             "action": action_name,
             "old_status": old_status,
-            "new_status": new_status,
+            "new_status": clean_status,
             "timestamp": time.time(),
         })
         return True

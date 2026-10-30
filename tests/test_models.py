@@ -128,3 +128,56 @@ def test_unauthorized_employee_cannot_update_status(pending_order, role, is_acti
 
     assert pending_order.status == "PENDING"
     assert authorizer.action_history == []
+
+
+@pytest.mark.parametrize("role", ["WAREHOUSE_WORKER", "CASHIER"])
+@pytest.mark.parametrize("new_status", ["CANCELLED", "cancelled", " CANCELLED "])
+def test_cancellation_permission_applies_after_normalizing_status(pending_order, role, new_status):
+    authorizer = OrderActionAuthorizer()
+    employee = Employee("EMP-2", "Dana", role)
+    pending_order.assign_employee("EMP-ORIGINAL")
+
+    with pytest.raises(PermissionError):
+        authorizer.authorize_and_update_status(pending_order, employee, new_status)
+
+    assert pending_order.status == "PENDING"
+    assert pending_order.handled_by_employee_id == "EMP-ORIGINAL"
+    assert authorizer.action_history == []
+
+
+@pytest.mark.parametrize("new_status", ["CANCELLED", "cancelled", " CANCELLED "])
+def test_logistics_manager_cancellation_is_audited_with_canonical_status(pending_order, new_status):
+    authorizer = OrderActionAuthorizer()
+    employee = Employee("EMP-MANAGER", "Aya", "LOGISTICS_MANAGER")
+
+    authorizer.authorize_and_update_status(pending_order, employee, new_status)
+
+    assert pending_order.status == "CANCELLED"
+    assert pending_order.handled_by_employee_id == "EMP-MANAGER"
+    assert len(authorizer.action_history) == 1
+    entry = authorizer.action_history[0]
+    assert entry["action"] == "CANCEL_ORDER"
+    assert entry["old_status"] == "PENDING"
+    assert entry["new_status"] == "CANCELLED"
+
+
+@pytest.mark.parametrize("new_status", ["LOST", " ", None])
+def test_invalid_status_update_does_not_change_order_or_audit(pending_order, new_status):
+    authorizer = OrderActionAuthorizer()
+    employee = Employee("EMP-MANAGER", "Aya", "LOGISTICS_MANAGER")
+    pending_order.assign_employee("EMP-ORIGINAL")
+
+    with pytest.raises(ValueError):
+        authorizer.authorize_and_update_status(pending_order, employee, new_status)
+
+    assert pending_order.status == "PENDING"
+    assert pending_order.handled_by_employee_id == "EMP-ORIGINAL"
+    assert authorizer.action_history == []
+
+
+def test_status_update_validation_returns_canonical_status_without_committing():
+    authorizer = OrderActionAuthorizer()
+    employee = Employee("EMP-MANAGER", "Aya", "LOGISTICS_MANAGER")
+
+    assert authorizer.validate_status_update(employee, " cancelled ") == "CANCELLED"
+    assert authorizer.action_history == []
