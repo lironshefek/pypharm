@@ -27,6 +27,7 @@ from pypharm import (
     run_approvers,
 )
 from pypharm.api_client import MockWeatherClient
+from pypharm.exceptions import WeatherCommunicationError
 from pypharm.processing import (
     InventoryRegistry,
     LocationCategoryTracker,
@@ -44,6 +45,86 @@ from pypharm.processing import (
 )
 from pypharm.models import OrderActionAuthorizer
 from pypharm.reports import generate_business_report, print_business_report
+
+
+class PartlyDownWeatherClient(MockWeatherClient):
+    """Demo client: mock readings, but the service is unreachable for some branches."""
+
+    def __init__(self, temperatures: dict = None, down: set = ()):
+        super().__init__(temperatures)
+        self.down = set(down)
+
+    def get_weather(self, latitude: float, longitude: float):
+        if (latitude, longitude) in self.down:
+            raise WeatherCommunicationError("weather service unreachable (simulated)")
+        return super().get_weather(latitude, longitude)
+
+
+def print_round(orders, queue) -> None:
+    risk_by_order = queue.risk_by_order()
+    for order in orders:
+        print(f"   {order.order_id} -> {order.to_location_id:<11} "
+              f"risk={risk_by_order[order.order_id]:<8} status={order.status}")
+
+
+def run_combined_process(locations, employees, data_dir) -> None:
+    """
+    6.5 - one process across both systems, from trigger to report:
+    trigger (orders ready to ship) -> weather at each destination (external data)
+    -> who may approve (employees subsystem) -> order status changes -> report.
+    """
+    print("\n" + "=" * 60)
+    print("STAGE 2: Combined process - weather decides who may ship (6.5)")
+    print("=" * 60)
+
+    orders = load_transfer_orders_from_jsonl(str(data_dir / "inventory_data.jsonl"))
+    locations_by_id = {location.location_id: location for location in locations}
+    employees_by_id = {employee.employee_id: employee for employee in employees}
+    noa = next(e for e in employees if e.role == "WAREHOUSE_MANAGER")
+    aya = next(e for e in employees if e.role == "LOGISTICS_MANAGER")
+    haifa = locations_by_id["STORE-HAIFA"]
+    haifa_coords = (haifa.latitude, haifa.longitude)
+
+    demo_config = WeatherConfig()
+    demo_config.RETRY_DELAY = 0  # the demo does not need to wait between retries
+
+    print(f"\nTRIGGER: {len(orders)} transfer orders are ready to ship (all PENDING).")
+    print(f"Today {aya.name} ({aya.role}) is on leave; only {noa.name} ({noa.role}) is approving.")
+    aya.deactivate()
+
+    print("\nROUND 1 - the weather service is unreachable for Haifa (mock data):")
+    queue = ApprovalQueue()
+    unreachable = PartlyDownWeatherClient(down={haifa_coords})
+    queue_orders_for_approval(
+        queue, orders, locations_by_id,
+        WeatherService(demo_config, client=unreachable, observers=[]), employees_by_id,
+    )
+    run_approvers(queue, [noa])
+    print_round(orders, queue)
+    weather = generate_business_report(OrderBatch(orders), queue, employees_by_id)["weather_approval"]
+    print(f"   Blocked by weather-service failure: {weather['blocked_by_weather_failure']} "
+          f"(nobody may approve without a weather check)")
+
+    print("\nROUND 2 - the service is back: heat wave in Haifa (35C, mock data):")
+    waiting = [order for order in orders if order.status == "PENDING"]
+    queue = ApprovalQueue()
+    queue_orders_for_approval(
+        queue, waiting, locations_by_id,
+        WeatherService(demo_config, client=MockWeatherClient({haifa_coords: 35.0})), employees_by_id,
+    )
+    run_approvers(queue, [noa])
+    print_round(waiting, queue)
+
+    print("\nREPORT - decision point (data from both systems):")
+    print_business_report(generate_business_report(OrderBatch(orders), queue, employees_by_id))
+
+    print(f"DECISION: {aya.name} is called back from leave and approves the hot-weather orders.")
+    aya.activate()
+    run_approvers(queue, [aya])
+    print_round(waiting, queue)
+
+    print("\nREPORT - after the change:")
+    print_business_report(generate_business_report(OrderBatch(orders), queue, employees_by_id))
 
 
 def main():
@@ -319,6 +400,8 @@ def main():
     print(f"Orders still waiting: {len(queue)}")
     for order_id, manager, risk_level in queue.approval_log:
         print(f"   {order_id} ({risk_level}) approved by {manager}")
+
+    run_combined_process(locations, employees, data_dir)
 
 
 if __name__ == "__main__":
