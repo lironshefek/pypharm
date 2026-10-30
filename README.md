@@ -357,8 +357,8 @@ pypharm/
 │   ├── processing.py             # לוגיקה עסקית שלב 1 + validate_employees_integrity (תת-המערכת)
 │   ├── repository.py             # טעינת JSONL (משתמש ב-ProductFactory)
 │   ├── reports.py                # דוח עסקי
-│   ├── async_processing.py       # Section 5.1: Async בדיקות weather, gather(), serial vs async (NEW)
-│   └── threaded_processing.py    # Section 5.2: Threading עם Lock, ApprovalQueue, multiple workers (NEW)
+│   ├── async_processing.py       # בדיקת מזג אוויר לכמה סניפים: סדרתית מול gather (סימולציה)
+│   └── threaded_processing.py    # ApprovalQueue – תור אישורי משלוחים משותף ל-threads, מוגן ב-Lock
 ├── tests/
 │   ├── test_api_client.py               # חיבור, סוגי כשל, Retry, WeatherReading
 │   ├── test_services.py                 # סיווג סיכון, תפקידים, תהליך משולב
@@ -366,19 +366,15 @@ pypharm/
 │   ├── test_factories.py                # ProductFactory וטעינה מקובץ
 │   ├── test_weather_observers.py        # Observer ותת-מערכת העובדים
 │   ├── test_weather_reading_builder.py  # היכולת שפותחה ב-TDD
-│   ├── test_async_processing.py         # Section 5.1: 7 בדיקות async + serial (NEW)
-│   └── test_threaded_processing.py      # Section 5.2: 9 בדיקות thread-safe + Lock (NEW)
+│   ├── test_async_processing.py         # חפיפה, תוצאות זהות, סדר הקלט
+│   └── test_threaded_processing.py      # מספר האישורים והמצב הסופי עם כמה threads
 ├── data/                  # נתוני הדגמה סינתטיים (JSONL)
-├── main.py                # הדגמת שלב 1 + שלב 2 + Section 5.1 + Section 5.2
+├── main.py                # הדגמת שלב 1 + שלב 2
 ├── .env.example           # שמות משתנים וערכי דוגמה בלבד
 └── pyproject.toml
 ```
 
 **מיקום תת־המערכת (עובדים, הרשאות ויושרה):** `Employee` ו־`OrderActionAuthorizer` ב־`models.py`, `validate_employees_integrity` ב־`processing.py`, והחיבור לשלב 2 דרך `IntegrityAlertObserver` ב־`observers.py`.
-
-**Section 5 (Concurrency):**
-- `async_processing.py`: בדיקות מזג אוויר במקביל (3 locations), קבוצה סדרתית מול `asyncio.gather()`, תוצאות זהות
-- `threaded_processing.py`: 2 workers משתמשים בתור אישורים משותף עם `threading.Lock()`, מונע race conditions
 
 **חלוקת אחריות (שלבים 1–2):**
 * **רות:** חיברה את המערכת לשירות מזג האוויר (כולל ניסיונות חוזרים), כתבה את סיווג הסיכון ואת כללי ההרשאה לפי מזג האוויר, הגדירה את סוגי השגיאות ואת קובץ ההגדרות, כתבה 25 בדיקות לשירות ופיתחה את `WeatherReadingBuilder` בשיטת TDD.
@@ -395,12 +391,12 @@ pypharm/
 * **Observer (`ApprovalEventPublisher`):** אירוע `DANGER` אחד מפעיל שני מגיבים – רישום ביקורת ובדיקת תקינות העובד. `WeatherService` לא מכיר את המגיבים, ואפשר להוסיף מגיב חדש בלי לשנות אותו. ה־Observer מתעד ומתריע; הוא אינו מאשר או משנה סטטוס. **זו התבנית שמשרתת את השילוב עם תת־המערכת.**
 * **העברת תלויות מבחוץ:** `WeatherService(config, client, observers)` מקבל את ה־client ואת המגיבים בבנאי, ו־`load_sample_data_from_jsonl` מקבל `product_factory`. כך בבדיקות מעבירים client מדומה או Mock observers בלי רשת, ובהרצה בוחרים בין שירות אמיתי למדומה בלי לשנות את הלוגיקה.
 * **זרימת המידע בין המערכות:** הזמנה → מיקום היעד → `WeatherService` → `WeatherReading` → רמת סיכון → תפקידים מאשרים; ב־`DANGER` → אירוע → `IntegrityAlertObserver` → בדיקת העובד מול קטלוג העובדים. בכשל השירות – אין אירוע ואין מאשרים.
-* **Section 5.1 (Async):** בדיקת מזג אוויר בשלוש סניפים (משימות עצמאיות). גרסה סדרתית: לולאה רגילה. גרסה אסינכרונית: `asyncio.gather()` מתזמן את כל הבדיקות בו-זמנית. שתיהן משתמשות בנתונים זהים (MockWeatherClient) ומחזירות תוצאות זהות. מטרה: הוכחת speedup ותכנון נכון של concurrency בלי רשת.
-* **Section 5.2 (Threading):** משאב משותף – `ApprovalQueue` (תור הזמנות לאישור מזג אוויר). שניי workers (`approval_worker` threads) מושכים הזמנות מהתור בו-זמנית. `Lock` מגן על הוצאת מהתור: `with self._lock:` נעל את התור, ואחרי ההוצאה שוחרר אוטומטי. בלי Lock, race condition: שני workers יכולים להוציא את אותה הזמנה, המלאי וה-`processed_count` יהיו שגויים. `join()` על כל thread מוודא שהעבודה הסתיימה לפני קריאה לתוצאות.
+* **משימות עצמאיות (סימולציה):** בדיקת מזג האוויר בכל סניף אינה תלויה בסניף אחר. ההמתנה לשירות מדומה ב־`await asyncio.sleep(...)`, והטמפרטורות מגיעות מנתונים מקומיים (`SIMULATED_BRANCH_WEATHER`), ללא רשת. הגרסה הסדרתית ממתינה לכל בדיקה לפני הבאה (‎0.6 שניות), ו־`gather` מתזמן את כולן לפני איסוף התוצאות (‎0.3 שניות – כמו הבדיקה הארוכה). התוצאות זהות ולפי סדר הקלט, גם כשסדר הסיום שונה.
+* **המשאב המשותף ו־Lock:** `ApprovalQueue` – תור הזמנות שממתינות לאישור יציאה. כמה מאשרים (threads) עובדים עליו בו־זמנית. אישור הוא רצף של **בדיקה ועדכון**: הוצאת ההזמנה מהתור → בדיקה שהיא עדיין `PENDING` → מעבר ל־`IN_TRANSIT` ורישום ביומן האישורים. אותה הזמנה יכולה להופיע בתור פעמיים (שתי בקשות לאותו משלוח). **בלי נעילה:** שני מאשרים רואים את ההזמנה כ־`PENDING` לפני שאחד מהם מעדכן – ושניהם מאשרים, כך שהיא נספרת ונרשמת פעמיים (בניסוי ללא Lock: 106 אישורים ל־100 הזמנות). `Lock` אחד מגן על כל הרצף. עבודה איטית (טיפול אחרי האישור, בדיקת מזג אוויר) נעשית מחוץ לקטע הנעול.
 
 ### הוכחות שהמערכת עובדת
 
-**בדיקות:** `python -m pytest` → **76 passed** (כולל Section 5).
+**בדיקות:** `python -m pytest` → **76 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
 
 | קובץ | מקרים |
 | :--- | :--- |
@@ -410,10 +406,8 @@ pypharm/
 | `test_weather_reading_builder.py` | 8 |
 | `test_weather_observers.py` | 5 |
 | `test_factories.py` | 4 |
-| `test_async_processing.py` | **7** (NEW) |
-| `test_threaded_processing.py` | **9** (NEW) |
-
-בדיקות אלו רצות **ללא רשת**, **ללא המתנות אמיתיות**, ו**ללא race conditions** (בודקות שLock עובד כמו שצריך).
+| `test_async_processing.py` | 8 |
+| `test_threaded_processing.py` | 8 |
 
 **הרצה מול השירות האמיתי** (`WEATHER_MODE=live python main.py`, 30.10.2026):
 ```
@@ -423,38 +417,17 @@ Mode: LIVE - real data from Open-Meteo (set by WEATHER_MODE=live)
 📍 Grand Canyon Branch (Haifa):          20.6°C (live data) → NORMAL
 ```
 
-**Section 5.1 (Async) – Demo:**
+**הדגמת המקביליות** (`python main.py`):
 ```
-SECTION 5.1: Asynchronous Weather Processing
-📍 SERIAL EXECUTION (one location at a time):
-   Time: 0.000s
-   • Modiin       | Temp:  33.5°C | Risk: DANGER | Roles: LOGISTICS_MANAGER
-   • Tel Aviv     | Temp:  24.0°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
-   • Haifa        | Temp:  21.5°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
+Serial (one check after another): 0.61s
+Concurrent (gather):              0.31s
+Same results, same input order: True
 
-⚡ ASYNC EXECUTION (all locations in parallel):
-   Time: 0.000s
-   • Modiin       | Temp:  33.5°C | Risk: DANGER | Roles: LOGISTICS_MANAGER
-   • Tel Aviv     | Temp:  24.0°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
-   • Haifa        | Temp:  21.5°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
-
-✓ Results match: True
-✓ Speedup: (demonstrated with real network latency in live mode)
-```
-
-**Section 5.2 (Threading) – Demo:**
-```
-SECTION 5.2: Multi-threaded Order Processing
-Processing 3 orders with 2 worker threads...
-Each thread safely accesses the shared queue using a Lock.
-
-📋 RESULTS (processed by multiple threads):
-  Worker 0 | ORD-WEATHER-001 | Modiin    | Temp:  33.5°C | Risk: DANGER | Roles: LOGISTICS_MANAGER
-  Worker 0 | ORD-WEATHER-002 | Tel Aviv  | Temp:  24.0°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
-  Worker 0 | ORD-WEATHER-003 | Haifa     | Temp:  21.5°C | Risk: NORMAL | Roles: WAREHOUSE_MANAGER, LOGISTICS_MANAGER
-
-✓ Processed 3 orders in 0.005s using Lock-protected queue
-✓ No race conditions: all updates were thread-safe
+7 requests in the queue for 5 different orders.
+Approvers working at the same time: Aya, noa
+Approvals: 5 (expected 5 - one per order)
+Orders now IN_TRANSIT: 5
+Requests left in the queue: 0
 ```
 
 **TDD – `WeatherReadingBuilder`:**
