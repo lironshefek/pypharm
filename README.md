@@ -392,11 +392,11 @@ pypharm/
 * **העברת תלויות מבחוץ:** `WeatherService(config, client, observers)` מקבל את ה־client ואת המגיבים בבנאי, ו־`load_sample_data_from_jsonl` מקבל `product_factory`. כך בבדיקות מעבירים client מדומה או Mock observers בלי רשת, ובהרצה בוחרים בין שירות אמיתי למדומה בלי לשנות את הלוגיקה.
 * **זרימת המידע בין המערכות:** הזמנה → מיקום היעד → `WeatherService` → `WeatherReading` → רמת סיכון → תפקידים מאשרים; ב־`DANGER` → אירוע → `IntegrityAlertObserver` → בדיקת העובד מול קטלוג העובדים. בכשל השירות – אין אירוע ואין מאשרים.
 * **משימות עצמאיות (סימולציה):** בדיקת מזג האוויר בכל סניף אינה תלויה בסניף אחר. ההמתנה לשירות מדומה ב־`await asyncio.sleep(...)`, והטמפרטורות מגיעות מנתונים מקומיים (`SIMULATED_BRANCH_WEATHER`), ללא רשת. הגרסה הסדרתית ממתינה לכל בדיקה לפני הבאה (‎0.6 שניות), ו־`gather` מתזמן את כולן לפני איסוף התוצאות (‎0.3 שניות – כמו הבדיקה הארוכה). התוצאות זהות ולפי סדר הקלט, גם כשסדר הסיום שונה.
-* **המשאב המשותף ו־Lock:** `ApprovalQueue` – תור הזמנות שממתינות לאישור יציאה. כמה מאשרים (threads) עובדים עליו בו־זמנית. אישור הוא רצף של **בדיקה ועדכון**: הוצאת ההזמנה מהתור → בדיקה שהיא עדיין `PENDING` → מעבר ל־`IN_TRANSIT` ורישום ביומן האישורים. אותה הזמנה יכולה להופיע בתור פעמיים (שתי בקשות לאותו משלוח). **בלי נעילה:** שני מאשרים רואים את ההזמנה כ־`PENDING` לפני שאחד מהם מעדכן – ושניהם מאשרים, כך שהיא נספרת ונרשמת פעמיים (בניסוי ללא Lock: 106 אישורים ל־100 הזמנות). `Lock` אחד מגן על כל הרצף. עבודה איטית (טיפול אחרי האישור, בדיקת מזג אוויר) נעשית מחוץ לקטע הנעול.
+* **המשאב המשותף ו־Lock:** `ApprovalQueue` – תור ההזמנות שממתינות לאישור יציאה (הזמנה שכבר ממתינה לא נכנסת שוב). כמה מנהלות (threads) עוברות בו־זמנית על אותן הזמנות, בודקות כל אחת ומנסות לאשר. אישור הוא רצף של **בדיקה ועדכון**: האם ההזמנה עדיין `PENDING`? → מעבר ל־`IN_TRANSIT` ורישום ביומן האישורים. **בלי נעילה:** שתי מנהלות פותחות את אותה הזמנה, שתיהן רואות `PENDING` לפני שאחת מעדכנת, ושתיהן מאשרות – אישור כפול שנרשם ונספר פעמיים (בניסוי ללא Lock: 200 אישורים ל־100 הזמנות). `Lock` אחד מגן על כל הרצף: הראשונה מאשרת, השנייה מקבלת סירוב. עיון בהזמנה ובדיקת מזג אוויר נעשים מחוץ לקטע הנעול.
 
 ### הוכחות שהמערכת עובדת
 
-**בדיקות:** `python -m pytest` → **76 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
+**בדיקות:** `python -m pytest` → **75 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
 
 | קובץ | מקרים |
 | :--- | :--- |
@@ -407,7 +407,7 @@ pypharm/
 | `test_weather_observers.py` | 5 |
 | `test_factories.py` | 4 |
 | `test_async_processing.py` | 8 |
-| `test_threaded_processing.py` | 8 |
+| `test_threaded_processing.py` | 7 |
 
 **הרצה מול השירות האמיתי** (`WEATHER_MODE=live python main.py`, 30.10.2026):
 ```
@@ -423,11 +423,12 @@ Serial (one check after another): 0.61s
 Concurrent (gather):              0.31s
 Same results, same input order: True
 
-7 requests in the queue for 5 different orders.
-Approvers working at the same time: Aya, noa
-Approvals: 5 (expected 5 - one per order)
+5 orders waiting for approval.
+Managers reviewing the same orders at the same time: Aya, noa
+Approvals: 5 (one per order)
+Double approvals blocked: 5
 Orders now IN_TRANSIT: 5
-Requests left in the queue: 0
+Orders still waiting: 0
 ```
 
 **TDD – `WeatherReadingBuilder`:**

@@ -287,19 +287,19 @@ def main():
     print("="*60)
 
     approval_orders = load_transfer_orders_from_jsonl(str(data_dir / "inventory_data.jsonl"))
-    # The first two shipments were requested twice, so they appear twice in the queue.
-    queue = ApprovalQueue(approval_orders + approval_orders[:2])
-    approvers = [e.name for e in employees if e.role in ("WAREHOUSE_MANAGER", "LOGISTICS_MANAGER")]
-    print(f"\n{len(queue)} requests in the queue for {len(approval_orders)} different orders.")
-    print(f"Approvers working at the same time: {', '.join(approvers)}")
+    queue = ApprovalQueue(approval_orders)
+    managers = [e.name for e in employees if e.role in ("WAREHOUSE_MANAGER", "LOGISTICS_MANAGER")]
+    print(f"\n{len(queue)} orders waiting for approval.")
+    print(f"Managers reviewing the same orders at the same time: {', '.join(managers)}")
 
-    run_approvers(queue, approvers, handling_time=0.05)
+    run_approvers(queue, managers, review_time=0.05)
 
-    print(f"\nApprovals: {queue.approved_count} (expected {len(approval_orders)} - one per order)")
+    print(f"\nApprovals: {queue.approved_count} (one per order)")
+    print(f"Double approvals blocked: {queue.refused_attempts}")
     print(f"Orders now IN_TRANSIT: {sum(order.status == 'IN_TRANSIT' for order in approval_orders)}")
-    print(f"Requests left in the queue: {len(queue)}")
-    for order_id, approver in queue.approval_log:
-        print(f"   {order_id} approved by {approver}")
+    print(f"Orders still waiting: {len(queue)}")
+    for order_id, manager in queue.approval_log:
+        print(f"   {order_id} approved by {manager}")
 
 
 if __name__ == "__main__":

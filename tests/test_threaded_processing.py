@@ -1,13 +1,13 @@
-"""Tests for the shipment approval queue shared by several approver threads."""
+"""Tests for the shipment approval queue shared by several manager threads."""
 
 import pytest
 
 from pypharm import ApprovalQueue, TransferOrder, run_approvers
 
 
-def make_orders(count, status="PENDING"):
+def make_orders(count):
     return [
-        TransferOrder(f"ORD-{i:03d}", "WH-CENTRAL", "STORE-TLV", priority=1, status=status)
+        TransferOrder(f"ORD-{i:03d}", "WH-CENTRAL", "STORE-TLV", priority=1)
         for i in range(1, count + 1)
     ]
 
@@ -17,64 +17,53 @@ def orders():
     return make_orders(6)
 
 
-def test_approve_next_on_empty_queue_returns_none():
-    queue = ApprovalQueue()
+def test_order_already_waiting_cannot_be_submitted_again(orders):
+    queue = ApprovalQueue(orders)
 
-    assert queue.approve_next("Aya") is None
-    assert queue.approved_count == 0
-
-
-def test_approve_next_follows_arrival_order(orders):
-    queue = ApprovalQueue(orders[:2])
-
-    first = queue.approve_next("Aya")
-
-    assert first.order_id == "ORD-001"
-    assert first.status == "IN_TRANSIT"
-    assert orders[1].status == "PENDING"
-    assert len(queue) == 1
+    with pytest.raises(ValueError, match="ORD-001 is already waiting"):
+        queue.submit(orders[0])
+    assert len(queue) == 6
 
 
-@pytest.mark.parametrize("approvers", [["Aya"], ["Aya", "Noa"], ["Aya", "Noa", "Ruth", "Liron"]])
-def test_every_order_is_approved_exactly_once(orders, approvers):
-    queue = run_approvers(ApprovalQueue(orders), approvers)
+def test_second_approval_of_the_same_order_is_refused(orders):
+    queue = ApprovalQueue(orders)
+
+    assert queue.try_approve("ORD-001", "Aya") is True
+    assert queue.try_approve("ORD-001", "noa") is False
+
+    assert orders[0].status == "IN_TRANSIT"
+    assert queue.approval_log == [("ORD-001", "Aya")]
+    assert queue.refused_attempts == 1
+
+
+def test_many_managers_racing_for_one_order_approve_it_once():
+    order = TransferOrder("ORD-777", "WH-CENTRAL", "STORE-HAIFA", priority=1)
+    queue = ApprovalQueue([order])
+
+    run_approvers(queue, [f"manager-{i}" for i in range(10)], review_time=0.001)
+
+    assert queue.approved_count == 1
+    assert queue.refused_attempts == 9
+    assert order.status == "IN_TRANSIT"
+
+
+@pytest.mark.parametrize("managers", [["Aya"], ["Aya", "noa"], ["Aya", "noa", "Ruth", "Liron"]])
+def test_every_order_is_approved_exactly_once(orders, managers):
+    queue = run_approvers(ApprovalQueue(orders), managers, review_time=0.001)
 
     assert queue.approved_count == 6
     assert sorted(order_id for order_id, _ in queue.approval_log) == [o.order_id for o in orders]
+    assert queue.refused_attempts == 6 * (len(managers) - 1)
     assert all(order.status == "IN_TRANSIT" for order in orders)
     assert len(queue) == 0
 
 
-def test_order_queued_twice_is_approved_once(orders):
-    # Two branch managers requested the same shipments: every order appears twice.
-    queue = ApprovalQueue(orders + orders)
-
-    run_approvers(queue, ["Aya", "Noa", "Ruth"])
-
-    assert queue.approved_count == 6
-    approved_ids = [order_id for order_id, _ in queue.approval_log]
-    assert len(approved_ids) == len(set(approved_ids))
-    assert len(queue) == 0
-
-
-def test_cancelled_order_is_not_approved():
-    pending = make_orders(2)
-    cancelled = TransferOrder("ORD-900", "WH-CENTRAL", "STORE-HAIFA", priority=2, status="CANCELLED")
-    queue = ApprovalQueue([pending[0], cancelled, pending[1]])
-
-    run_approvers(queue, ["Aya", "Noa"])
-
-    assert queue.approved_count == 2
-    assert cancelled.status == "CANCELLED"
-    assert "ORD-900" not in [order_id for order_id, _ in queue.approval_log]
-
-
-def test_many_approvers_on_many_duplicated_orders():
+def test_many_managers_on_many_orders():
     orders = make_orders(200)
-    queue = ApprovalQueue(orders * 3)
 
-    run_approvers(queue, [f"approver-{i}" for i in range(8)], handling_time=0.0001)
+    queue = run_approvers(ApprovalQueue(orders), [f"manager-{i}" for i in range(8)])
 
     assert queue.approved_count == 200
+    assert queue.refused_attempts == 200 * 7
     assert all(order.status == "IN_TRANSIT" for order in orders)
     assert len(queue) == 0

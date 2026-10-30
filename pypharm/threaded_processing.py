@@ -1,26 +1,24 @@
 """
-Shipment approval queue shared by several approver threads.
+Shipment approval queue shared by several manager threads.
 
 The shared business resource is the queue of transfer orders waiting for
-approval. Approving an order is a check-then-update sequence:
+approval. Every manager goes over the same pending orders, reviews each one
+and tries to approve it. Approving is a check-then-update sequence:
 
-    1. take the next order from the queue
-    2. check that it is still PENDING
-    3. move it to IN_TRANSIT and record the approval
+    1. check that the order is still PENDING
+    2. move it to IN_TRANSIT and record who approved it
 
-The same order can be queued more than once (for example, when two branch
-managers request the same shipment). Without a lock, two approvers can both
-see the order as PENDING before either of them updates it - the order is then
-approved twice and counted twice in the approval log. One Lock protects the
-whole sequence, so only one approver can run it at a time.
+Without a lock, two managers can both see the same order as PENDING before
+either of them updates it - both approve, and the order is approved twice and
+recorded twice in the approval log. One Lock protects the whole sequence, so
+only the first manager approves; the second one gets a refusal.
 
-Slow work such as a weather check must happen outside the locked section.
+Slow work (reviewing the order, a weather check) happens outside the lock.
 """
 
 import logging
 import threading
 import time
-from collections import deque
 
 from .models import TransferOrder
 
@@ -28,38 +26,47 @@ logger = logging.getLogger(__name__)
 
 
 class ApprovalQueue:
-    """FIFO queue of orders waiting for shipment approval, safe for several threads."""
+    """Orders waiting for shipment approval, shared by several managers."""
 
     def __init__(self, orders=()):
-        self._queue = deque(orders)
+        self._pending: dict[str, TransferOrder] = {}
         self._lock = threading.Lock()
         self._approval_log: list[tuple[str, str]] = []
+        self._refused_attempts = 0
+        for order in orders:
+            self.submit(order)
 
     def submit(self, order: TransferOrder) -> None:
-        """Add an order to the end of the approval queue."""
+        """Add an order to the queue. An order that is already waiting is rejected."""
         with self._lock:
-            self._queue.append(order)
+            if order.order_id in self._pending:
+                raise ValueError(f"Order {order.order_id} is already waiting for approval")
+            if order.status != "PENDING":
+                raise ValueError(f"Only PENDING orders can wait for approval, {order.order_id} is {order.status}")
+            self._pending[order.order_id] = order
 
-    def approve_next(self, approver: str) -> TransferOrder | None:
+    def pending_ids(self) -> list[str]:
+        """Snapshot of the order ids still waiting, in arrival order."""
+        with self._lock:
+            return list(self._pending)
+
+    def try_approve(self, order_id: str, manager: str) -> bool:
         """
-        Approve the next PENDING order in the queue.
-
-        Orders that are no longer PENDING (already approved or cancelled) are
-        dropped from the queue without a second approval.
+        Approve the order if it is still PENDING.
 
         Returns:
-            The approved order, or None when no order is left to approve.
+            True if this manager approved it, False if it was already handled.
         """
         with self._lock:
-            while self._queue:
-                order = self._queue.popleft()
-                if order.status != "PENDING":
-                    logger.info(f"{approver} skipped {order.order_id}: already {order.status}")
-                    continue
-                order.status = "IN_TRANSIT"
-                self._approval_log.append((order.order_id, approver))
-                return order
-            return None
+            order = self._pending.get(order_id)
+            if order is None or order.status != "PENDING":
+                self._refused_attempts += 1
+                logger.info(f"{manager} cannot approve {order_id}: already handled")
+                return False
+            order.status = "IN_TRANSIT"
+            del self._pending[order_id]
+            self._approval_log.append((order_id, manager))
+            return True
 
     @property
     def approved_count(self) -> int:
@@ -67,40 +74,47 @@ class ApprovalQueue:
             return len(self._approval_log)
 
     @property
+    def refused_attempts(self) -> int:
+        """How many times a manager tried to approve an order that was already approved."""
+        with self._lock:
+            return self._refused_attempts
+
+    @property
     def approval_log(self) -> list[tuple[str, str]]:
-        """Copy of the (order_id, approver) records, in approval order."""
+        """Copy of the (order_id, manager) records, in approval order."""
         with self._lock:
             return list(self._approval_log)
 
     def __len__(self) -> int:
         with self._lock:
-            return len(self._queue)
+            return len(self._pending)
 
 
-def approval_worker(queue: ApprovalQueue, approver: str, handling_time: float = 0.0) -> None:
+def approval_worker(queue: ApprovalQueue, manager: str, order_ids: list, review_time: float = 0.0) -> None:
     """
-    Approve orders from the shared queue until it is empty.
+    One manager goes over the list of pending orders, reviews each one and tries to approve it.
 
-    handling_time simulates the paperwork after each approval. It runs outside
-    the lock, so other approvers can keep working in the meantime.
+    review_time simulates reading the order before deciding. It runs outside
+    the lock, so the other managers keep working at the same time.
     """
-    while True:
-        order = queue.approve_next(approver)
-        if order is None:
-            break
-        logger.info(f"{approver} approved {order.order_id}")
-        time.sleep(handling_time)
+    for order_id in order_ids:
+        time.sleep(review_time)
+        if queue.try_approve(order_id, manager):
+            logger.info(f"{manager} approved {order_id}")
 
 
-def run_approvers(queue: ApprovalQueue, approvers: list, handling_time: float = 0.0) -> ApprovalQueue:
+def run_approvers(queue: ApprovalQueue, managers: list, review_time: float = 0.0) -> ApprovalQueue:
     """
-    Run one thread per approver on the same queue and wait for all of them.
+    Run one thread per manager on the same queue and wait for all of them.
 
-    All threads are started before any join(), so they work at the same time.
+    Every manager gets the same list of pending orders, so they compete for
+    the same orders. All threads are started before any join(), so they work
+    at the same time.
     """
+    order_ids = queue.pending_ids()
     threads = [
-        threading.Thread(target=approval_worker, args=(queue, approver, handling_time))
-        for approver in approvers
+        threading.Thread(target=approval_worker, args=(queue, manager, order_ids, review_time))
+        for manager in managers
     ]
     for thread in threads:
         thread.start()
