@@ -83,10 +83,13 @@ class WeatherAPIClient:
         try:
             if "current" not in data:
                 raise KeyError("Missing 'current' section")
-            weather = WeatherReading.from_api_response(data["current"])
+            current_data = data["current"]
+            if not isinstance(current_data, dict):
+                raise TypeError(f"'current' section must be a dict, got {type(current_data).__name__}")
+            weather = WeatherReading.from_api_response(current_data)
             logger.info(f"✅ Weather: {weather.temperature_2m}°C")
             return weather
-        except (KeyError, ValueError) as e:
+        except (KeyError, ValueError, TypeError) as e:
             logger.error(f"Data validation failed: {e}")
             raise WeatherDataError(str(e)) from e
 

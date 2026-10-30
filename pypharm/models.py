@@ -498,10 +498,16 @@ class OrderActionAuthorizer:
                 f"Action denied: Employee {employee.employee_id!r} is inactive."
             )
 
-        if not self.is_authorized(employee, "UPDATE_STATUS"):
+        # Determine the action being performed based on new_status
+        if new_status == "CANCELLED":
+            action_name = "CANCEL_ORDER"
+        else:
+            action_name = "UPDATE_STATUS"
+
+        if not self.is_authorized(employee, action_name):
             raise PermissionError(
                 f"Permission denied: Employee {employee.name!r} with role {employee.role!r} "
-                f"is not authorized to update order statuses."
+                f"is not authorized for action '{action_name}'."
             )
 
         old_status = order.status
@@ -511,7 +517,7 @@ class OrderActionAuthorizer:
         self._action_history.append({
             "order_id": order.order_id,
             "employee_id": employee.employee_id,
-            "action": "UPDATE_STATUS",
+            "action": action_name,
             "old_status": old_status,
             "new_status": new_status,
             "timestamp": time.time(),

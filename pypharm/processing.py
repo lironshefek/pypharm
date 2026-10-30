@@ -176,37 +176,46 @@ def process_order_lifecycle(
         return True
 
     elif action == "DISPATCH":
-        for item in order.items:
-            source_inventory[item.sku].dispatch_reserved(item.quantity)
-
+        # Check authorization BEFORE modifying inventory
         if employee is not None and authorizer is not None:
             authorizer.authorize_and_update_status(order, employee, "IN_TRANSIT")
         else:
             order.status = "IN_TRANSIT"
+
+        # Only modify inventory after authorization passes
+        for item in order.items:
+            source_inventory[item.sku].dispatch_reserved(item.quantity)
         return True
 
     elif action == "DELIVER":
-        for item in order.items:
-            if item.sku in dest_inventory:
-                dest_inventory[item.sku].receive_incoming(item.quantity)
-
+        # Check authorization BEFORE modifying inventory
         if employee is not None and authorizer is not None:
             authorizer.authorize_and_update_status(order, employee, "DELIVERED")
         else:
             order.status = "DELIVERED"
+
+        # Only modify inventory after authorization passes
+        for item in order.items:
+            if item.sku in dest_inventory:
+                dest_inventory[item.sku].receive_incoming(item.quantity)
         return True
 
     elif action == "CANCEL":
-        if order.status == "PENDING":
-            for item in order.items:
-                source_inventory[item.sku].release_reservation(item.quantity)
-                if item.sku in dest_inventory:
-                    dest_inventory[item.sku].reduce_incoming(item.quantity)
+        # Check authorization BEFORE modifying inventory
+        # Only cancel if order is still PENDING
+        if order.status != "PENDING":
+            return False
 
         if employee is not None and authorizer is not None:
             authorizer.authorize_and_update_status(order, employee, "CANCELLED")
         else:
             order.status = "CANCELLED"
+
+        # Only modify inventory after authorization passes (status is now CANCELLED)
+        for item in order.items:
+            source_inventory[item.sku].release_reservation(item.quantity)
+            if item.sku in dest_inventory:
+                dest_inventory[item.sku].reduce_incoming(item.quantity)
         return True
 
     return False
