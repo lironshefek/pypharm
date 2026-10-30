@@ -1,148 +1,79 @@
 """
-Asynchronous weather checking for multiple locations.
+Asynchronous weather checks for several branches (simulation, no network).
 
-Demonstrates concurrent task execution for independent weather checks.
-Serial and async versions process the same locations with identical results,
-but async executes in parallel for better performance.
+Each branch check is an independent task: it does not need the result of
+another check to start. The waiting time of a real API call is simulated with
+``await asyncio.sleep(...)`` and the temperatures come from local data.
+
+Two versions run the same tasks on the same data:
+- serial: awaits each check before starting the next one;
+- concurrent: schedules all checks with ``asyncio.gather`` before collecting
+  the results.
+
+Both return one result per branch, in the input order, even when the checks
+finish in a different order.
 """
 
 import asyncio
 import logging
-import time
 
 from .services import WeatherService
 
 logger = logging.getLogger(__name__)
 
+# location_id -> (temperature in Celsius, simulated response time in seconds)
+SIMULATED_BRANCH_WEATHER = {
+    "WH-CENTRAL": (33.5, 0.3),   # Modiin - hot day, DANGER
+    "STORE-TLV": (24.0, 0.2),    # Tel Aviv - NORMAL
+    "STORE-HAIFA": (21.5, 0.1),  # Haifa - NORMAL
+}
 
-async def check_weather_async(service: WeatherService, location) -> dict:
-    """
-    Check weather for a single location asynchronously.
 
-    Args:
-        service: WeatherService instance
-        location: Location object with latitude, longitude, and name
+async def check_branch_weather(
+    location_id: str,
+    service: WeatherService,
+    weather_data: dict = SIMULATED_BRANCH_WEATHER,
+) -> dict:
+    """Simulate one weather request for a branch and classify its risk."""
+    if location_id not in weather_data:
+        raise ValueError(f"No simulated weather data for location {location_id!r}")
 
-    Returns:
-        Dictionary with temperature, risk_level, required_roles, and location name
-    """
-    result = service.check_and_classify_for_order(location)
+    temperature, delay = weather_data[location_id]
+    logger.info(f"Checking weather for {location_id} (simulated wait {delay}s)")
+    await asyncio.sleep(delay)
+
+    risk_level = service.classify_risk(temperature)
+    logger.info(f"Finished {location_id}: {temperature}°C -> {risk_level}")
     return {
-        "location": location.name,
-        "temperature": result["temperature"],
-        "risk_level": result["risk_level"],
-        "required_roles": result["required_roles"],
+        "location_id": location_id,
+        "temperature": temperature,
+        "risk_level": risk_level,
+        "required_roles": service.get_required_roles(risk_level),
     }
 
 
-async def check_multiple_locations_async(
-    service: WeatherService, locations: list
+async def check_branches_serial(
+    location_ids: list,
+    service: WeatherService,
+    weather_data: dict = SIMULATED_BRANCH_WEATHER,
 ) -> list:
-    """
-    Check weather for multiple locations concurrently.
-
-    All location checks run in parallel. Faster than serial when checking many locations.
-
-    Args:
-        service: WeatherService instance
-        locations: List of Location objects
-
-    Returns:
-        List of weather check results, one per location (order preserved)
-    """
-    tasks = [check_weather_async(service, loc) for loc in locations]
-    results = await asyncio.gather(*tasks)
-    return results
-
-
-def check_multiple_locations_serial(
-    service: WeatherService, locations: list
-) -> list:
-    """
-    Check weather for multiple locations sequentially.
-
-    Each location waits for the previous one to complete.
-    Used as baseline for comparison with async version.
-
-    Args:
-        service: WeatherService instance
-        locations: List of Location objects
-
-    Returns:
-        List of weather check results, one per location (identical to async)
-    """
+    """Check the branches one after another - each check waits for the previous one."""
     results = []
-    for loc in locations:
-        result = service.check_and_classify_for_order(loc)
-        results.append(
-            {
-                "location": loc.name,
-                "temperature": result["temperature"],
-                "risk_level": result["risk_level"],
-                "required_roles": result["required_roles"],
-            }
-        )
+    for location_id in location_ids:
+        results.append(await check_branch_weather(location_id, service, weather_data))
     return results
 
 
-async def demo_async_vs_serial():
+async def check_branches_concurrent(
+    location_ids: list,
+    service: WeatherService,
+    weather_data: dict = SIMULATED_BRANCH_WEATHER,
+) -> list:
     """
-    Compare async and serial weather checking performance and correctness.
+    Schedule all branch checks first, then collect the results.
 
-    Demonstrates:
-    - Async version runs all checks in parallel
-    - Serial version runs checks one after another
-    - Both produce identical results
-    - Async is faster (especially with network latency in live mode)
+    gather() returns the results in the order of the tasks it received,
+    so the output follows the input order and not the finish order.
     """
-    from .config import WeatherConfig
-    from .api_client import MockWeatherClient
-    from . import Location
-
-    config = WeatherConfig()
-    # Use MockWeatherClient for predictable results
-    service = WeatherService(config=config, client=MockWeatherClient())
-
-    # 3 locations to check
-    locations = [
-        Location("STORE-MODIIN", "Modiin", "STORE", "Modiin", 31.9103, 35.1876),
-        Location("STORE-TLV", "Tel Aviv", "STORE", "Tel Aviv", 32.0853, 34.7818),
-        Location("STORE-HAIFA", "Haifa", "STORE", "Haifa", 32.8193, 34.9927),
-    ]
-
-    # Serial execution
-    start = time.time()
-    serial_results = check_multiple_locations_serial(service, locations)
-    serial_time = time.time() - start
-
-    # Async execution
-    start = time.time()
-    async_results = await check_multiple_locations_async(service, locations)
-    async_time = time.time() - start
-
-    # Display results
-    print("\n" + "=" * 70)
-    print("SECTION 5.1: Asynchronous Weather Processing")
-    print("=" * 70)
-
-    print("\n📍 SERIAL EXECUTION (one location at a time):")
-    print(f"   Time: {serial_time:.3f}s")
-    for r in serial_results:
-        print(
-            f"   • {r['location']:12} | Temp: {r['temperature']:5}°C | Risk: {r['risk_level']:6} | Roles: {', '.join(r['required_roles']) if r['required_roles'] else 'None'}"
-        )
-
-    print("\n⚡ ASYNC EXECUTION (all locations in parallel):")
-    print(f"   Time: {async_time:.3f}s")
-    for r in async_results:
-        print(
-            f"   • {r['location']:12} | Temp: {r['temperature']:5}°C | Risk: {r['risk_level']:6} | Roles: {', '.join(r['required_roles']) if r['required_roles'] else 'None'}"
-        )
-
-    print(f"\n✓ Results match: {serial_results == async_results}")
-    if async_time > 0:
-        speedup = serial_time / async_time
-        print(f"✓ Speedup: {speedup:.1f}x faster with async")
-    print("=" * 70 + "\n")
-
-    return serial_results, async_results
+    tasks = [check_branch_weather(location_id, service, weather_data) for location_id in location_ids]
+    return list(await asyncio.gather(*tasks))

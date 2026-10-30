@@ -2,6 +2,7 @@ from itertools import islice
 from pathlib import Path
 
 import asyncio
+import time
 
 from pypharm import (
     Employee,
@@ -19,9 +20,12 @@ from pypharm import (
     open_orders_generator,
     WeatherConfig,
     WeatherService,
-    demo_async_vs_serial,
-    demo_threaded_processing,
+    ApprovalQueue,
+    check_branches_concurrent,
+    check_branches_serial,
+    run_approvers,
 )
+from pypharm.api_client import MockWeatherClient
 from pypharm.processing import (
     InventoryRegistry,
     LocationCategoryTracker,
@@ -258,14 +262,44 @@ def main():
         print(f"   Approval Roles: {', '.join(result['required_roles'])}")
 
     print("\n" + "="*60)
-    print("SECTION 5.1: Asynchronous Weather Processing")
+    print("STAGE 2: Async weather checks (5.1) - simulated data, no network")
     print("="*60)
-    asyncio.run(demo_async_vs_serial())
+
+    branch_ids = [location.location_id for location in locations]
+    simulation_service = WeatherService(config, client=MockWeatherClient())
+
+    start = time.perf_counter()
+    serial_results = asyncio.run(check_branches_serial(branch_ids, simulation_service))
+    serial_time = time.perf_counter() - start
+
+    start = time.perf_counter()
+    concurrent_results = asyncio.run(check_branches_concurrent(branch_ids, simulation_service))
+    concurrent_time = time.perf_counter() - start
+
+    for result in concurrent_results:
+        print(f"   {result['location_id']:12} {result['temperature']:5}°C -> {result['risk_level']}")
+    print(f"\nSerial (one check after another): {serial_time:.2f}s")
+    print(f"Concurrent (gather):              {concurrent_time:.2f}s")
+    print(f"Same results, same input order: {serial_results == concurrent_results}")
 
     print("\n" + "="*60)
-    print("SECTION 5.2: Multi-threaded Order Processing")
+    print("STAGE 2: Shared approval queue with threads and a Lock (5.2)")
     print("="*60)
-    demo_threaded_processing()
+
+    approval_orders = load_transfer_orders_from_jsonl(str(data_dir / "inventory_data.jsonl"))
+    # The first two shipments were requested twice, so they appear twice in the queue.
+    queue = ApprovalQueue(approval_orders + approval_orders[:2])
+    approvers = [e.name for e in employees if e.role in ("WAREHOUSE_MANAGER", "LOGISTICS_MANAGER")]
+    print(f"\n{len(queue)} requests in the queue for {len(approval_orders)} different orders.")
+    print(f"Approvers working at the same time: {', '.join(approvers)}")
+
+    run_approvers(queue, approvers, handling_time=0.05)
+
+    print(f"\nApprovals: {queue.approved_count} (expected {len(approval_orders)} - one per order)")
+    print(f"Orders now IN_TRANSIT: {sum(order.status == 'IN_TRANSIT' for order in approval_orders)}")
+    print(f"Requests left in the queue: {len(queue)}")
+    for order_id, approver in queue.approval_log:
+        print(f"   {order_id} approved by {approver}")
 
 
 if __name__ == "__main__":

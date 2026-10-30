@@ -45,16 +45,15 @@ from .observers import (
     IntegrityAlertObserver,
 )
 from .async_processing import (
-    check_weather_async,
-    check_multiple_locations_async,
-    check_multiple_locations_serial,
-    demo_async_vs_serial,
+    SIMULATED_BRANCH_WEATHER,
+    check_branch_weather,
+    check_branches_serial,
+    check_branches_concurrent,
 )
 from .threaded_processing import (
     ApprovalQueue,
     approval_worker,
-    process_orders_threaded,
-    demo_threaded_processing,
+    run_approvers,
 )
 
 __all__ = [
@@ -97,13 +96,12 @@ __all__ = [
     "AuditLogObserver",
     "IntegrityAlertObserver",
     # Async Processing (Section 5.1)
-    "check_weather_async",
-    "check_multiple_locations_async",
-    "check_multiple_locations_serial",
-    "demo_async_vs_serial",
+    "SIMULATED_BRANCH_WEATHER",
+    "check_branch_weather",
+    "check_branches_serial",
+    "check_branches_concurrent",
     # Threaded Processing (Section 5.2)
     "ApprovalQueue",
     "approval_worker",
-    "process_orders_threaded",
-    "demo_threaded_processing",
+    "run_approvers",
 ]

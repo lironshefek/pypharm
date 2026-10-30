@@ -1,212 +1,109 @@
 """
-Threaded weather checking with synchronized access to shared resources.
+Shipment approval queue shared by several approver threads.
 
-Demonstrates concurrent thread execution with thread-safe access to a shared
-approval queue using a Lock. Multiple threads process orders requiring weather
-approval without race conditions or data corruption.
+The shared business resource is the queue of transfer orders waiting for
+approval. Approving an order is a check-then-update sequence:
+
+    1. take the next order from the queue
+    2. check that it is still PENDING
+    3. move it to IN_TRANSIT and record the approval
+
+The same order can be queued more than once (for example, when two branch
+managers request the same shipment). Without a lock, two approvers can both
+see the order as PENDING before either of them updates it - the order is then
+approved twice and counted twice in the approval log. One Lock protects the
+whole sequence, so only one approver can run it at a time.
+
+Slow work such as a weather check must happen outside the locked section.
 """
 
 import logging
 import threading
 import time
+from collections import deque
 
-from .services import WeatherService
+from .models import TransferOrder
 
 logger = logging.getLogger(__name__)
 
 
 class ApprovalQueue:
-    """Thread-safe queue for orders requiring dangerous-weather approval."""
+    """FIFO queue of orders waiting for shipment approval, safe for several threads."""
 
-    def __init__(self):
-        self._queue = []
+    def __init__(self, orders=()):
+        self._queue = deque(orders)
         self._lock = threading.Lock()
-        self._processed_count = 0
+        self._approval_log: list[tuple[str, str]] = []
 
-    def enqueue(self, order_info: dict) -> None:
-        """Add an order to the approval queue (thread-safe)."""
+    def submit(self, order: TransferOrder) -> None:
+        """Add an order to the end of the approval queue."""
         with self._lock:
-            self._queue.append(order_info)
-            logger.info(
-                f"Enqueued order {order_info['order_id']} | Queue size: {len(self._queue)}"
-            )
+            self._queue.append(order)
 
-    def dequeue(self) -> dict | None:
-        """Remove and return the next order from the queue (thread-safe)."""
+    def approve_next(self, approver: str) -> TransferOrder | None:
+        """
+        Approve the next PENDING order in the queue.
+
+        Orders that are no longer PENDING (already approved or cancelled) are
+        dropped from the queue without a second approval.
+
+        Returns:
+            The approved order, or None when no order is left to approve.
+        """
         with self._lock:
-            if self._queue:
-                order = self._queue.pop(0)
-                self._processed_count += 1
+            while self._queue:
+                order = self._queue.popleft()
+                if order.status != "PENDING":
+                    logger.info(f"{approver} skipped {order.order_id}: already {order.status}")
+                    continue
+                order.status = "IN_TRANSIT"
+                self._approval_log.append((order.order_id, approver))
                 return order
             return None
 
-    def queue_size(self) -> int:
-        """Get the current queue size (thread-safe)."""
+    @property
+    def approved_count(self) -> int:
+        with self._lock:
+            return len(self._approval_log)
+
+    @property
+    def approval_log(self) -> list[tuple[str, str]]:
+        """Copy of the (order_id, approver) records, in approval order."""
+        with self._lock:
+            return list(self._approval_log)
+
+    def __len__(self) -> int:
         with self._lock:
             return len(self._queue)
 
-    def processed_count(self) -> int:
-        """Get the total number of processed orders (thread-safe)."""
-        with self._lock:
-            return self._processed_count
 
-
-def approval_worker(
-    worker_id: int,
-    service: WeatherService,
-    approval_queue: ApprovalQueue,
-    results: list,
-) -> None:
+def approval_worker(queue: ApprovalQueue, approver: str, handling_time: float = 0.0) -> None:
     """
-    Worker thread: process orders from the approval queue.
+    Approve orders from the shared queue until it is empty.
 
-    Each worker:
-    - Dequeues an order
-    - Checks weather at the destination
-    - Records the result
-    - Continues until queue is empty
-
-    Uses the Lock inside ApprovalQueue to avoid race conditions.
-
-    Args:
-        worker_id: Worker thread identifier
-        service: WeatherService instance
-        approval_queue: Thread-safe ApprovalQueue
-        results: List to collect results
+    handling_time simulates the paperwork after each approval. It runs outside
+    the lock, so other approvers can keep working in the meantime.
     """
-    logger.info(f"Worker {worker_id} started")
-
     while True:
-        order_info = approval_queue.dequeue()
-        if order_info is None:
-            # Queue is empty, worker exits
+        order = queue.approve_next(approver)
+        if order is None:
             break
-
-        order_id = order_info["order_id"]
-        location = order_info["location"]
-
-        # Check weather
-        logger.info(
-            f"Worker {worker_id} processing {order_id} at {location.name}..."
-        )
-        weather_result = service.check_and_classify_for_order(location)
-
-        # Record result
-        result_entry = {
-            "worker_id": worker_id,
-            "order_id": order_id,
-            "location": location.name,
-            "temperature": weather_result["temperature"],
-            "risk_level": weather_result["risk_level"],
-            "required_roles": weather_result["required_roles"],
-        }
-        results.append(result_entry)
-        logger.info(
-            f"Worker {worker_id} finished {order_id}: {weather_result['risk_level']}"
-        )
-
-    logger.info(f"Worker {worker_id} exiting")
+        logger.info(f"{approver} approved {order.order_id}")
+        time.sleep(handling_time)
 
 
-def process_orders_threaded(
-    service: WeatherService, orders: list, num_workers: int = 2
-) -> list:
+def run_approvers(queue: ApprovalQueue, approvers: list, handling_time: float = 0.0) -> ApprovalQueue:
     """
-    Process a list of orders using multiple threads.
+    Run one thread per approver on the same queue and wait for all of them.
 
-    Each thread:
-    - Pulls orders from a thread-safe queue
-    - Checks weather
-    - Records results
-
-    All threads synchronize via Lock on the ApprovalQueue.
-
-    Args:
-        service: WeatherService instance
-        orders: List of dicts with order_id and location
-        num_workers: Number of worker threads (default 2)
-
-    Returns:
-        List of processing results
+    All threads are started before any join(), so they work at the same time.
     """
-    approval_queue = ApprovalQueue()
-    results = []
-
-    # Enqueue all orders
-    for order in orders:
-        approval_queue.enqueue(order)
-
-    # Start worker threads
-    threads = []
-    for worker_id in range(num_workers):
-        t = threading.Thread(
-            target=approval_worker,
-            args=(worker_id, service, approval_queue, results),
-        )
-        t.start()
-        threads.append(t)
-
-    # Wait for all threads to finish
-    for t in threads:
-        t.join()
-
-    logger.info(f"All {num_workers} workers finished")
-    return results
-
-
-def demo_threaded_processing():
-    """
-    Demonstrate multi-threaded order processing with synchronized queue access.
-
-    Creates 3 orders with different locations and processes them using 2 worker
-    threads. Both threads safely access the shared queue protected by a Lock.
-    """
-    from .config import WeatherConfig
-    from .api_client import MockWeatherClient
-    from . import Location, TransferOrder
-
-    config = WeatherConfig()
-    # Use MockWeatherClient for predictable results
-    service = WeatherService(config=config, client=MockWeatherClient())
-
-    # Create orders with locations
-    locations = [
-        Location("STORE-MODIIN", "Modiin", "STORE", "Modiin", 31.9103, 35.1876),
-        Location("STORE-TLV", "Tel Aviv", "STORE", "Tel Aviv", 32.0853, 34.7818),
-        Location("STORE-HAIFA", "Haifa", "STORE", "Haifa", 32.8193, 34.9927),
+    threads = [
+        threading.Thread(target=approval_worker, args=(queue, approver, handling_time))
+        for approver in approvers
     ]
-
-    orders = []
-    for i, loc in enumerate(locations):
-        order = TransferOrder(
-            f"ORD-WEATHER-{i+1:03d}", "WH-CENTRAL", loc.location_id, 1
-        )
-        orders.append({"order_id": order.order_id, "location": loc})
-
-    # Process with 2 worker threads
-    print("\n" + "=" * 70)
-    print("SECTION 5.2: Multi-threaded Order Processing")
-    print("=" * 70)
-    print(f"\nProcessing {len(orders)} orders with {2} worker threads...")
-    print("Each thread safely accesses the shared queue using a Lock.\n")
-
-    start = time.time()
-    results = process_orders_threaded(service, orders, num_workers=2)
-    elapsed = time.time() - start
-
-    print("\n📋 RESULTS (processed by multiple threads):")
-    print("-" * 70)
-    for r in results:
-        print(
-            f"  Worker {r['worker_id']} | {r['order_id']} | {r['location']:12} | "
-            f"Temp: {r['temperature']:5}°C | Risk: {r['risk_level']:6} | "
-            f"Roles: {', '.join(r['required_roles']) if r['required_roles'] else 'None'}"
-        )
-
-    print(
-        f"\n✓ Processed {len(results)} orders in {elapsed:.3f}s using Lock-protected queue"
-    )
-    print("✓ No race conditions: all updates were thread-safe")
-    print("=" * 70 + "\n")
-
-    return results
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return queue
