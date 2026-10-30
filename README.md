@@ -368,7 +368,9 @@ pypharm/
 │   ├── test_weather_observers.py        # Observer ותת-מערכת העובדים
 │   ├── test_weather_reading_builder.py  # היכולת שפותחה ב-TDD
 │   ├── test_async_processing.py         # חפיפה, תוצאות זהות, סדר הקלט
-│   └── test_threaded_processing.py      # אישור אחד לכל הזמנה, הרשאות לפי מזג אוויר, מצב סופי
+│   ├── test_threaded_processing.py      # אישור אחד לכל הזמנה, הרשאות לפי מזג אוויר, מצב סופי
+│   ├── test_integration.py              # רביעייה (6.4): תהליך משולב מוצלח, כשל בשירות, יעד שאינו קיים
+│   └── test_reports.py                  # רביעייה (6.4): הדוח המשולב ונכונות המדדים החדשים
 ├── data/                  # נתוני הדגמה סינתטיים (JSONL)
 ├── main.py                # הדגמת שלב 1 + שלב 2
 ├── .env.example           # שמות משתנים וערכי דוגמה בלבד
@@ -376,6 +378,12 @@ pypharm/
 ```
 
 **מיקום תת־המערכת (עובדים, הרשאות ויושרה):** `Employee` ו־`OrderActionAuthorizer` ב־`models.py`, `validate_employees_integrity` ב־`processing.py`, והחיבור לשלב 2 דרך `IntegrityAlertObserver` ב־`observers.py`.
+
+**ארבע הבדיקות הנוספות של הרביעייה (6.4):**
+* תהליך משולב שמסתיים בהצלחה – `tests/test_integration.py::test_combined_process_succeeds_and_hot_order_is_approved_by_logistics_only`
+* כשל בשירות החיצוני והתגובה העסקית – `tests/test_integration.py::test_weather_service_failure_blocks_approval_and_changes_nothing`
+* קשר לא תקין בין נתוני שתי המערכות (יעד שאינו קיים) – `tests/test_integration.py::test_order_to_unknown_destination_rejects_the_whole_batch`
+* נכונות המדד החדש בדוח – `tests/test_reports.py::test_senior_approval_backlog_per_active_logistics_manager`
 
 **חלוקת אחריות (שלבים 1–2):**
 * **רות:** חיברה את המערכת לשירות מזג האוויר (כולל ניסיונות חוזרים), כתבה את סיווג הסיכון ואת כללי ההרשאה לפי מזג האוויר, הגדירה את סוגי השגיאות ואת קובץ ההגדרות, כתבה 25 בדיקות לשירות ופיתחה את `WeatherReadingBuilder` בשיטת TDD.
@@ -440,6 +448,28 @@ Orders still waiting: 0
    ORD-503 (DANGER) approved by Aya
    ORD-504 (NORMAL) approved by noa
    ORD-505 (NORMAL) approved by noa
+```
+
+**הדגמת התהליך המשולב בין שתי המערכות (6.5)** – החלק האחרון בפלט של `python main.py` (`run_combined_process`, נתונים מדומים, ללא רשת):
+* **מה מפעיל את התהליך:** חמש הזמנות ניוד מוכנות ליציאה (`PENDING`). מנהלת הלוגיסטיקה בחופשה, ורק מנהלת המחסן מאשרת.
+* **איזה מידע עובר:** לכל הזמנה נבדק מזג האוויר בסניף היעד (שירות חיצוני) → רמת סיכון ותפקידים מאשרים → תור האישורים → המנהלות (תת־מערכת העובדים) → `OrderActionAuthorizer`. בסבב 1 השירות אינו זמין לחיפה (`UNKNOWN` – אף אחת לא מאשרת); בסבב 2 השירות חוזר, ההזמנות הממתינות נבדקות מחדש באותו תור ומתגלה גל חום (35°C, `DANGER`).
+* **מה משתנה:** שלוש ההזמנות לתל אביב עוברות ל־`IN_TRANSIT` ונרשמות ביומן הביקורת; שתי ההזמנות לחיפה נשארות `PENDING`, כי רק מנהלת לוגיסטיקה רשאית לאשר אותן.
+* **איך השינוי מופיע בדוח:** הדוח המשולב מציג עומס אישורים בכירים של 2 ואזהרה שאין מנהלת לוגיסטיקה פעילה, וגם הזמנה שנשלחה למרות שיוך לעובד שאינו קיים (ORD-504). בעקבות הדוח מנהלת הלוגיסטיקה חוזרת ומאשרת, ובדוח שאחרי השינוי העומס הוא 0.
+
+```
+ROUND 1 - the weather service is unreachable for Haifa (mock data):
+   ORD-502 -> STORE-HAIFA risk=UNKNOWN  status=PENDING
+   Blocked by weather-service failure: 2
+ROUND 2 - the service is back; waiting orders are re-checked: heat wave in Haifa (35C, mock data):
+   ORD-502 -> STORE-HAIFA risk=DANGER   status=PENDING
+6. Weather-Based Shipment Approval (Stage 2):
+   - Orders by destination weather: NORMAL 3, DANGER 2, UNKNOWN 0
+   - Senior-approval backlog (DANGER orders waiting for a logistics manager): 2
+   [WARNING] No active logistics manager - these orders cannot be shipped.
+   [WARNING] Shipped although assigned to an unknown/inactive employee: 1 (ORD-504)
+DECISION: Aya is called back from leave and approves the hot-weather orders.
+   - Senior-approval backlog (DANGER orders waiting for a logistics manager): 0
+   [OK] No hot/cold-weather orders are waiting for senior approval.
 ```
 
 **TDD – `WeatherReadingBuilder`:**
