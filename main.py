@@ -90,7 +90,8 @@ def run_combined_process(locations, employees, data_dir) -> None:
 
     print(f"\nTRIGGER: {len(orders)} transfer orders are ready to ship (all PENDING).")
     print(f"Today {aya.name} ({aya.role}) is on leave; only {noa.name} ({noa.role}) is approving.")
-    aya.deactivate()
+    # On leave: still an employee (her orders are not an integrity issue), but she cannot approve today
+    aya.start_leave()
 
     print("\nROUND 1 - the weather service is unreachable for Haifa (mock data):")
     queue = ApprovalQueue()
@@ -119,7 +120,7 @@ def run_combined_process(locations, employees, data_dir) -> None:
     print_business_report(generate_business_report(OrderBatch(orders), queue, employees_by_id))
 
     print(f"DECISION: {aya.name} is called back from leave and approves the hot-weather orders.")
-    aya.activate()
+    aya.end_leave()
     run_approvers(queue, [aya])
     print_round(waiting, queue)
 

@@ -393,3 +393,16 @@ def test_approval_snapshot_marks_an_unchecked_assignment_explicitly(aya, assigne
     assert queue.approval_records == {
         "ORD-1": {"assigned_employee_id": assigned_employee_id, "integrity_issue": expected_issue}
     }
+
+
+def test_logistics_manager_on_leave_cannot_approve_a_danger_order(aya):
+    order = make_order("ORD-1")
+    queue = ApprovalQueue()
+    queue.submit(order, "DANGER", DANGER_ROLES)
+    aya.start_leave()
+
+    assert queue.try_approve("ORD-1", aya) == NOT_AUTHORIZED
+    assert order.status == "PENDING"
+
+    aya.end_leave()
+    assert queue.try_approve("ORD-1", aya) == APPROVED

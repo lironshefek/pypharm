@@ -74,7 +74,7 @@ def test_senior_approval_backlog_per_active_logistics_manager(approval_day, empl
     # ORD-4 cannot be approved by anyone until the weather check succeeds
     assert weather["blocked_by_weather_failure"] == 1
     # Dana is inactive, so only Aya can clear the backlog
-    assert weather["active_logistics_managers"] == 1
+    assert weather["available_logistics_managers"] == 1
     assert weather["backlog_per_logistics_manager"] == 2.0
 
 
@@ -83,7 +83,7 @@ def test_backlog_with_no_active_logistics_manager_is_flagged(approval_day, noa):
 
     weather = generate_business_report(OrderBatch(orders), queue, {"EMP-105": noa})["weather_approval"]
 
-    assert weather["active_logistics_managers"] == 0
+    assert weather["available_logistics_managers"] == 0
     assert weather["backlog_per_logistics_manager"] is None
 
 
@@ -259,3 +259,28 @@ def test_generating_report_does_not_change_orders_employees_or_approval_history(
         {employee_id: (employee.role, employee.is_active) for employee_id, employee in employees.items()},
         queue.approval_records, queue.approval_log, queue.refusals, authorizer.action_history,
     ) == before
+
+
+def test_logistics_manager_on_leave_cannot_clear_the_backlog(approval_day, employees):
+    orders, queue = approval_day
+    employees["EMP-101"].start_leave()  # Aya is the only active logistics manager
+
+    weather = generate_business_report(OrderBatch(orders), queue, employees)["weather_approval"]
+
+    assert weather["senior_approval_backlog"] == 2
+    assert weather["available_logistics_managers"] == 0
+    assert weather["backlog_per_logistics_manager"] is None
+
+
+def test_order_assigned_to_an_employee_on_leave_is_not_an_integrity_issue(noa, employees):
+    order = TransferOrder("ORD-1", "WH-CENTRAL", "STORE-TLV", 1, handled_by_employee_id="EMP-101")
+    employees["EMP-101"].start_leave()
+    queue = ApprovalQueue()
+    queue.submit(order, "NORMAL", NORMAL_ROLES, employees)
+    assert queue.try_approve(order.order_id, noa) == ApprovalQueue.APPROVED
+
+    weather = generate_business_report(OrderBatch([order]), queue, employees)["weather_approval"]
+
+    # Aya is on leave, not gone: her order is shipped by noa without an integrity issue
+    assert weather["approved_with_integrity_issue"] == 0
+    assert weather["integrity_issue_orders"] == []

@@ -181,3 +181,36 @@ def test_status_update_validation_returns_canonical_status_without_committing():
 
     assert authorizer.validate_status_update(employee, " cancelled ") == "CANCELLED"
     assert authorizer.action_history == []
+
+
+# --- Employees: on leave is not the same as inactive ---
+
+def test_employee_on_leave_is_still_active_but_not_available():
+    aya = Employee("EMP-101", "Aya", "LOGISTICS_MANAGER")
+
+    aya.start_leave()
+    assert aya.is_active is True
+    assert aya.is_available is False
+
+    aya.end_leave()
+    assert aya.is_available is True
+
+
+def test_inactive_employee_cannot_go_on_leave():
+    dana = Employee("EMP-102", "Dana", "LOGISTICS_MANAGER", is_active=False)
+
+    with pytest.raises(ValueError, match="inactive"):
+        dana.start_leave()
+    assert dana.on_leave is False
+
+
+def test_employee_on_leave_cannot_update_status(pending_order):
+    aya = Employee("EMP-101", "Aya", "LOGISTICS_MANAGER")
+    aya.start_leave()
+    authorizer = OrderActionAuthorizer()
+
+    with pytest.raises(PermissionError, match="on leave"):
+        authorizer.authorize_and_update_status(pending_order, aya, "IN_TRANSIT")
+
+    assert pending_order.status == "PENDING"
+    assert authorizer.action_history == []

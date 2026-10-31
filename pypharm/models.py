@@ -407,12 +407,18 @@ class TransferOrder:
 class Employee:
     VALID_ROLES = {"WAREHOUSE_WORKER", "WAREHOUSE_MANAGER", "LOGISTICS_MANAGER", "PHARMACIST", "CASHIER"}
 
-    def __init__(self, employee_id: str, name: str, role: str, is_active: bool = True):
+    def __init__(self, employee_id: str, name: str, role: str, is_active: bool = True, on_leave: bool = False):
         self.employee_id = _require_non_empty_str(employee_id, "Employee ID")
         self.name = _require_non_empty_str(name, "Name")
         if not isinstance(is_active, bool):
             raise ValueError(f"is_active must be a boolean, got: {is_active!r}")
+        if not isinstance(on_leave, bool):
+            raise ValueError(f"on_leave must be a boolean, got: {on_leave!r}")
+        if on_leave and not is_active:
+            raise ValueError("An inactive employee cannot be on leave")
+        # is_active: still employed. on_leave: employed, but not at work today.
         self.is_active = is_active
+        self.on_leave = on_leave
 
         clean_role = _require_non_empty_str(role, "Role").upper()
         if clean_role not in self.VALID_ROLES:
@@ -432,9 +438,23 @@ class Employee:
 
     def deactivate(self):
         self.is_active = False
+        self.on_leave = False
 
     def activate(self):
         self.is_active = True
+
+    def start_leave(self):
+        if not self.is_active:
+            raise ValueError(f"Employee {self.employee_id!r} is inactive and cannot go on leave")
+        self.on_leave = True
+
+    def end_leave(self):
+        self.on_leave = False
+
+    @property
+    def is_available(self) -> bool:
+        """At work today: still employed and not on leave."""
+        return self.is_active and not self.on_leave
 
     @classmethod
     def from_dict(cls, data: dict):
@@ -446,13 +466,18 @@ class Employee:
         )
 
     def __str__(self) -> str:
-        status_str = "ACTIVE" if self.is_active else "INACTIVE"
+        if not self.is_active:
+            status_str = "INACTIVE"
+        elif self.on_leave:
+            status_str = "ON LEAVE"
+        else:
+            status_str = "ACTIVE"
         return f"{self.name} ({self._role}) [{self.employee_id}] - {status_str}"
 
     def __repr__(self) -> str:
         return (
             f"Employee(employee_id={self.employee_id!r}, name={self.name!r}, "
-            f"role={self._role!r}, is_active={self.is_active!r})"
+            f"role={self._role!r}, is_active={self.is_active!r}, on_leave={self.on_leave!r})"
         )
 
 
@@ -483,7 +508,7 @@ class OrderActionAuthorizer:
     def is_authorized(self, employee: Employee, action_name: str) -> bool:
         if not isinstance(employee, Employee):
             raise ValueError(f"Must provide a valid Employee instance, got: {type(employee).__name__}")
-        if not employee.is_active:
+        if not employee.is_available:
             return False
 
         allowed_roles = self._permissions.get(action_name, set())
@@ -497,6 +522,10 @@ class OrderActionAuthorizer:
         if not employee.is_active:
             raise PermissionError(
                 f"Action denied: Employee {employee.employee_id!r} is inactive."
+            )
+        if employee.on_leave:
+            raise PermissionError(
+                f"Action denied: Employee {employee.employee_id!r} is on leave."
             )
 
         clean_status = _require_non_empty_str(new_status, "Status").upper()
