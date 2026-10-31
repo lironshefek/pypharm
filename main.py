@@ -382,8 +382,8 @@ def main():
         WeatherService(config, client=heat_wave),
         employees_dict,
     )
-    # The warehouse manager starts first, so she reaches the hot-weather orders before
-    # the logistics manager does - the demo then shows both kinds of refusal.
+    # Both managers compete for the orders; thread start order does not determine
+    # which manager reaches an order first or how refusals split by reason.
     managers = [e for e in employees if e.role == "WAREHOUSE_MANAGER"] + [
         e for e in employees if e.role == "LOGISTICS_MANAGER"
     ]

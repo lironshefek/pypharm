@@ -72,9 +72,9 @@ def _weather_approval_summary(batch, approval_queue, employees_catalog: dict) ->
     approved only by a logistics manager, so the backlog per active logistics
     manager shows whether the approvals can be cleared or more staff is needed.
 
-    Second metric - shipped despite an integrity issue: orders that were
-    approved although their assigned employee is unknown or inactive in the
-    employees catalog, so the shipment and its assignment can be reviewed.
+    Second metric - shipped despite an integrity issue: IN_TRANSIT or
+    DELIVERED orders approved by this queue with an unknown/inactive handler
+    at the time of approval. Later employee changes do not rewrite history.
     """
     risk_by_order = approval_queue.risk_by_order()
     queued = [(order, risk_by_order[order.order_id]) for order in batch if order.order_id in risk_by_order]
@@ -88,16 +88,19 @@ def _weather_approval_summary(batch, approval_queue, employees_catalog: dict) ->
 
     senior_backlog = pending_with("DANGER")
 
-    # Shipped orders whose assigned employee (before approval) is unknown or inactive
-    assigned = approval_queue.assigned_employee_by_order()
+    # Use approval-time snapshots, not today's catalog or the original queue entry.
+    # A cancelled/unapproved order is not a shipment with an integrity issue.
+    approvals = approval_queue.approval_records
     integrity_issue_orders = []
+    integrity_unchecked_count = 0
     for order, _ in queued:
-        employee_id = assigned[order.order_id]
-        if order.status == "PENDING" or employee_id is None:
+        approval = approvals.get(order.order_id)
+        if approval is None or order.status not in ("IN_TRANSIT", "DELIVERED"):
             continue
-        employee = employees_catalog.get(employee_id)
-        if employee is None or not employee.is_active:
+        if approval["integrity_issue"] is True:
             integrity_issue_orders.append(order.order_id)
+        elif approval["integrity_issue"] is None:
+            integrity_unchecked_count += 1
 
     active_logistics_managers = sum(
         1 for employee in employees_catalog.values()
@@ -116,6 +119,7 @@ def _weather_approval_summary(batch, approval_queue, employees_catalog: dict) ->
         ),
         "approved_with_integrity_issue": len(integrity_issue_orders),
         "integrity_issue_orders": integrity_issue_orders,
+        "integrity_unchecked_count": integrity_unchecked_count,
     }
 
 
@@ -184,8 +188,11 @@ def print_business_report(report_data: dict) -> None:
             print(f"   - Backlog per active logistics manager: {per_manager:.1f} "
                   f"({weather['active_logistics_managers']} active)")
         if weather["approved_with_integrity_issue"]:
-            print(f"   [WARNING] Shipped although assigned to an unknown/inactive employee: "
+            print(f"   [WARNING] Shipped with an unknown/inactive assigned employee at approval: "
                   f"{weather['approved_with_integrity_issue']} ({', '.join(weather['integrity_issue_orders'])})")
             print("   Recommendation: review these shipments and fix the employee assignment.")
+        if weather["integrity_unchecked_count"]:
+            print(f"   [WARNING] Assignment integrity was not checked at approval: "
+                  f"{weather['integrity_unchecked_count']} (employee catalog was not supplied)")
 
     print("------------------------------------------------------------\n")

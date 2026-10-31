@@ -52,15 +52,26 @@ class ApprovalQueue:
         self._entries: dict[str, dict] = {}
         self._stats_lock = threading.Lock()
         self._approval_log: list[tuple[str, str, str]] = []
+        self._approval_records: dict[str, dict] = {}
         self._refusals = {self.ALREADY_HANDLED: 0, self.NOT_AUTHORIZED: 0}
 
-    def submit(self, order: TransferOrder, risk_level: str, required_roles: list) -> None:
+    def submit(
+        self,
+        order: TransferOrder,
+        risk_level: str,
+        required_roles: list,
+        employees_catalog: dict | None = None,
+    ) -> None:
         """
         Add an order with its weather risk and the roles allowed to approve it.
 
         An order already in the queue is rejected - unless its weather check
         failed (UNKNOWN) and it is still PENDING: then this is the re-check,
         and the order gets its real risk and approvers in place.
+
+        Re-checks must use the original order object and destination. The
+        employee catalog, when supplied, is checked at approval time so the
+        audit records the assignment that actually preceded the approval.
 
         Orders are submitted before the managers of that round start working.
         """
@@ -70,11 +81,15 @@ class ApprovalQueue:
             with entry["lock"]:
                 entry["risk_level"] = risk_level
                 entry["required_roles"] = set(required_roles)
+                if employees_catalog is not None:
+                    entry["employees_catalog"] = employees_catalog
             return
         self._entries[order.order_id] = {
             "order": order,
+            "destination_id": order.to_location_id,
             "risk_level": risk_level,
             "required_roles": set(required_roles),
+            "employees_catalog": employees_catalog,
             # Approval replaces the order's handler, so keep who was assigned before it
             "assigned_employee_id": order.handled_by_employee_id,
             "lock": threading.Lock(),
@@ -83,10 +98,20 @@ class ApprovalQueue:
     def validate_submission(self, order: TransferOrder) -> None:
         """Raise ValueError if the order cannot enter the queue. Changes nothing."""
         entry = self._entries.get(order.order_id)
-        if entry is not None and entry["risk_level"] != self.UNKNOWN_RISK:
-            raise ValueError(f"Order {order.order_id} is already waiting for approval")
+        if entry is not None:
+            self._validate_queued_order(order, entry)
+            if entry["risk_level"] != self.UNKNOWN_RISK:
+                raise ValueError(f"Order {order.order_id} is already waiting for approval")
         if order.status != "PENDING":
             raise ValueError(f"Only PENDING orders can wait for approval, {order.order_id} is {order.status}")
+
+    @staticmethod
+    def _validate_queued_order(order: TransferOrder, entry: dict) -> None:
+        """Keep cached weather tied to the exact order and destination checked."""
+        if order is not entry["order"]:
+            raise ValueError(f"Order {order.order_id} must use the same object already in the approval queue")
+        if order.to_location_id != entry["destination_id"]:
+            raise ValueError(f"Order {order.order_id} destination changed after it entered the approval queue")
 
     def risk_by_order(self) -> dict[str, str]:
         """Weather risk level recorded for every order in the queue."""
@@ -113,28 +138,53 @@ class ApprovalQueue:
         if entry is None:
             raise ValueError(f"Order {order_id} is not in the approval queue")
 
+        approval_record = None
         with entry["lock"]:
             order = entry["order"]
+            self._validate_queued_order(order, entry)
+            risk_level = entry["risk_level"]
             if order.status != "PENDING":
                 result = self.ALREADY_HANDLED
             elif manager.role not in entry["required_roles"]:
                 result = self.NOT_AUTHORIZED
             else:
+                assigned_employee_id = order.handled_by_employee_id
+                employees_catalog = entry["employees_catalog"]
+                if assigned_employee_id is None:
+                    integrity_issue = False
+                elif employees_catalog is None:
+                    integrity_issue = None
+                else:
+                    employee = employees_catalog.get(assigned_employee_id)
+                    integrity_issue = employee is None or not employee.is_active
                 try:
                     # Checks the employee is active and allowed to update statuses, then updates.
                     self._authorizer.authorize_and_update_status(order, manager, "IN_TRANSIT")
                     result = self.APPROVED
+                    approval_record = {
+                        "assigned_employee_id": assigned_employee_id,
+                        "integrity_issue": integrity_issue,
+                    }
                 except PermissionError:
                     result = self.NOT_AUTHORIZED
 
-        self._record(result, order_id, manager, entry["risk_level"])
+        self._record(result, order_id, manager, risk_level, approval_record)
         return result
 
-    def _record(self, result: str, order_id: str, manager: Employee, risk_level: str) -> None:
-        """Update the shared approval log and refusal counters."""
+    def _record(
+        self,
+        result: str,
+        order_id: str,
+        manager: Employee,
+        risk_level: str,
+        approval_record: dict | None,
+    ) -> None:
+        """Update the approval log, historical records and counters together."""
         with self._stats_lock:
             if result == self.APPROVED:
+                assert approval_record is not None
                 self._approval_log.append((order_id, manager.name, risk_level))
+                self._approval_records[order_id] = approval_record
             else:
                 self._refusals[result] += 1
         if result != self.APPROVED:
@@ -156,6 +206,17 @@ class ApprovalQueue:
         """Copy of the (order_id, manager name, risk level) records, in approval order."""
         with self._stats_lock:
             return list(self._approval_log)
+
+    @property
+    def approval_records(self) -> dict[str, dict]:
+        """Copies of successful approvals' assignment and integrity snapshots.
+
+        An unknown integrity result (None) means an assigned employee could
+        not be checked because no catalog was supplied. Later assignment or
+        employee-status changes do not rewrite these historical facts.
+        """
+        with self._stats_lock:
+            return {order_id: dict(record) for order_id, record in self._approval_records.items()}
 
     def __len__(self) -> int:
         """Number of orders still waiting for approval."""
@@ -191,7 +252,7 @@ def queue_orders_for_approval(
     for order in orders:
         location = locations_by_id[order.to_location_id]
         weather = weather_service.check_and_classify_for_order(location, order, employees_catalog)
-        queue.submit(order, weather["risk_level"], weather["required_roles"])
+        queue.submit(order, weather["risk_level"], weather["required_roles"], employees_catalog)
 
 
 def approval_worker(queue: ApprovalQueue, manager: Employee, order_ids: list, review_time: float = 0.0) -> None:

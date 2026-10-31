@@ -1,6 +1,7 @@
 """Tests for the shipment approval queue shared by several manager threads."""
 
 import threading
+from unittest.mock import Mock
 
 import pytest
 
@@ -266,3 +267,129 @@ def test_recheck_through_the_weather_service_updates_the_risk(aya):
 
     assert queue.risk_by_order() == {"ORD-1": "DANGER"}
     assert queue.try_approve("ORD-1", aya) == APPROVED
+
+
+@pytest.mark.parametrize("replacement_destination", ["STORE-HAIFA", "STORE-TLV"])
+def test_recheck_rejects_another_order_object_before_requesting_weather(replacement_destination):
+    original = make_order("ORD-1", "STORE-HAIFA")
+    replacement = make_order("ORD-1", replacement_destination)
+    fresh = make_order("ORD-2", "STORE-TLV")
+    authorizer = OrderActionAuthorizer()
+    queue = ApprovalQueue(authorizer)
+    queue.submit(original, "UNKNOWN", UNKNOWN_ROLES)
+    client = Mock(wraps=MockWeatherClient())
+    service = WeatherService(client=client, observers=[])
+    locations = {
+        "STORE-HAIFA": Location("STORE-HAIFA", "Haifa", "STORE", "Haifa", 32.8193, 34.9927),
+        "STORE-TLV": Location("STORE-TLV", "Tel Aviv", "STORE", "Tel Aviv", 32.0853, 34.7818),
+    }
+
+    with pytest.raises(ValueError, match="same object"):
+        queue_orders_for_approval(queue, [fresh, replacement], locations, service)
+
+    client.get_weather.assert_not_called()
+    assert queue.risk_by_order() == {"ORD-1": "UNKNOWN"}
+    assert all(order.status == "PENDING" for order in [original, replacement, fresh])
+    assert queue.approved_count == 0
+    assert queue.approval_records == {}
+    assert authorizer.action_history == []
+
+
+def test_recheck_rejects_a_changed_destination_before_requesting_weather():
+    order = make_order("ORD-1", "STORE-TLV")
+    authorizer = OrderActionAuthorizer()
+    queue = ApprovalQueue(authorizer)
+    queue.submit(order, "UNKNOWN", UNKNOWN_ROLES)
+    order.to_location_id = "STORE-HAIFA"
+    haifa = Location("STORE-HAIFA", "Haifa", "STORE", "Haifa", 32.8193, 34.9927)
+    client = Mock(wraps=MockWeatherClient())
+    service = WeatherService(client=client, observers=[])
+
+    with pytest.raises(ValueError, match="destination changed"):
+        queue_orders_for_approval(queue, [order], {"STORE-HAIFA": haifa}, service)
+
+    client.get_weather.assert_not_called()
+    assert queue.risk_by_order() == {"ORD-1": "UNKNOWN"}
+    assert order.status == "PENDING"
+    assert queue.approved_count == 0
+    assert queue.approval_records == {}
+    assert authorizer.action_history == []
+
+
+def test_approval_rejects_a_changed_destination_instead_of_using_old_weather(noa):
+    order = make_order("ORD-1", "STORE-TLV")
+    authorizer = OrderActionAuthorizer()
+    queue = ApprovalQueue(authorizer)
+    queue.submit(order, "NORMAL", NORMAL_ROLES)
+    order.to_location_id = "STORE-HAIFA"
+
+    with pytest.raises(ValueError, match="destination changed"):
+        queue.try_approve("ORD-1", noa)
+
+    assert queue.risk_by_order() == {"ORD-1": "NORMAL"}
+    assert order.status == "PENDING"
+    assert order.handled_by_employee_id is None
+    assert queue.approved_count == 0
+    assert queue.refusals == {ALREADY_HANDLED: 0, NOT_AUTHORIZED: 0}
+    assert queue.approval_records == {}
+    assert authorizer.action_history == []
+
+
+def test_approval_records_the_repaired_assignment_and_retains_catalog_on_recheck(aya, noa):
+    order = make_order("ORD-1")
+    order.assign_employee("EMP-MISSING")
+    queue = ApprovalQueue()
+    queue.submit(order, "UNKNOWN", UNKNOWN_ROLES, {noa.employee_id: noa})
+    order.assign_employee(noa.employee_id)
+    queue.submit(order, "DANGER", DANGER_ROLES)
+
+    assert queue.try_approve("ORD-1", aya) == APPROVED
+
+    assert order.handled_by_employee_id == aya.employee_id
+    assert queue.approval_records == {
+        "ORD-1": {"assigned_employee_id": noa.employee_id, "integrity_issue": False}
+    }
+
+
+def test_recheck_can_supply_a_catalog_for_the_approval_snapshot(aya, noa):
+    order = make_order("ORD-1")
+    order.assign_employee(noa.employee_id)
+    queue = ApprovalQueue()
+    queue.submit(order, "UNKNOWN", UNKNOWN_ROLES)
+    queue.submit(order, "DANGER", DANGER_ROLES, {noa.employee_id: noa})
+
+    assert queue.try_approve("ORD-1", aya) == APPROVED
+    assert queue.approval_records["ORD-1"]["integrity_issue"] is False
+
+
+def test_approval_records_are_historical_and_cannot_be_mutated_through_a_copy(aya, noa):
+    order = make_order("ORD-1")
+    order.assign_employee(noa.employee_id)
+    noa.deactivate()
+    queue = ApprovalQueue()
+    queue.submit(order, "DANGER", DANGER_ROLES, {noa.employee_id: noa})
+    assert queue.try_approve("ORD-1", aya) == APPROVED
+
+    records = queue.approval_records
+    records["ORD-1"]["integrity_issue"] = False
+    records.clear()
+    noa.activate()
+    order.assign_employee("EMP-OTHER")
+
+    assert queue.approval_records == {
+        "ORD-1": {"assigned_employee_id": noa.employee_id, "integrity_issue": True}
+    }
+
+
+@pytest.mark.parametrize("assigned_employee_id,expected_issue", [(None, False), ("EMP-MISSING", None)])
+def test_approval_snapshot_marks_an_unchecked_assignment_explicitly(aya, assigned_employee_id, expected_issue):
+    order = make_order("ORD-1")
+    if assigned_employee_id is not None:
+        order.assign_employee(assigned_employee_id)
+    queue = ApprovalQueue()
+    queue.submit(order, "DANGER", DANGER_ROLES)
+
+    assert queue.try_approve("ORD-1", aya) == APPROVED
+    assert queue.approval_records == {
+        "ORD-1": {"assigned_employee_id": assigned_employee_id, "integrity_issue": expected_issue}
+    }
