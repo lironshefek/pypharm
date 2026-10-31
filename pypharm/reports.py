@@ -106,7 +106,7 @@ def _weather_approval_summary(batch, approval_queue, employees_catalog: dict) ->
     # Who can clear the backlog today: on-leave managers are still employees, but not at work
     available_logistics_managers = sum(
         1 for employee in employees_catalog.values()
-        if employee.role == "LOGISTICS_MANAGER" and employee.is_available
+        if employee.role == "LOGISTICS_MANAGER" and employee.is_active and not employee.on_leave
     )
 
     return {

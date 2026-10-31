@@ -2,6 +2,7 @@ from itertools import islice
 from pathlib import Path
 
 import asyncio
+import sys
 import time
 
 from pypharm import (
@@ -406,4 +407,8 @@ def main():
 
 
 if __name__ == "__main__":
+    # Windows uses a legacy encoding when output is redirected to a file or pipe.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     main()

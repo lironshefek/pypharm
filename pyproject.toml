@@ -13,10 +13,6 @@ dependencies = [
     "requests>=2.31.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-]
 keywords = [
     "pharmacy",
     "inventory management",
@@ -31,6 +27,11 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
 ]
 
 [tool.setuptools]

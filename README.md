@@ -310,9 +310,13 @@ python main.py
 
 **דרישות:** Python 3.10 ומעלה.
 
+מתוך תיקיית הפרויקט, התקינו את הפרויקט ואת כלי הבדיקות בסביבת Python הפעילה (Windows, macOS או Linux):
+
 ```bash
-pip install requests pytest
+python -m pip install -e ".[dev]"
 ```
+
+ב־Windows, אם הפקודה `python` אינה זמינה אבל Python מותקן, אפשר להשתמש ב־`py -3` במקום `python` בפקודות הבאות.
 
 **משתני סביבה** (כולם אופציונליים, ללא סודות – השירות אינו דורש מפתח; דוגמה ב־[`.env.example`](.env.example)):
 
@@ -328,6 +332,19 @@ pip install requests pytest
 ```bash
 python main.py
 ```
+
+**שמירת הפלט לקובץ ב־cmd.exe, ב־macOS או ב־Linux:**
+```bash
+python main.py > out.txt
+```
+`main.py` מגדיר את הפלט ואת הודעות השגיאה כ־UTF-8, כדי להדפיס גם סימנים ואימוג׳י ללא `UnicodeEncodeError`.
+
+**שמירת הפלט ב־PowerShell (כולל Windows PowerShell 5.1):**
+```powershell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+python main.py | Out-File -Encoding utf8 out.txt
+```
+כך גם פענוח הפלט ב־PowerShell וגם שמירת הקובץ משתמשים ב־UTF-8. יש לפתוח את הקובץ בקידוד UTF-8; קידוד ברירת המחדל של הפניה לקובץ משתנה בין גרסאות PowerShell ([תיעוד Microsoft](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_character_encoding)).
 
 **הרצה מול השירות האמיתי:**
 ```bash
@@ -370,6 +387,7 @@ pypharm/
 │   ├── test_async_processing.py         # חפיפה, תוצאות זהות, סדר הקלט
 │   ├── test_threaded_processing.py      # אישור אחד לכל הזמנה, הרשאות לפי מזג אוויר, מצב סופי
 │   ├── test_integration.py              # רביעייה (6.4): תהליך משולב מוצלח, כשל בשירות, יעד שאינו קיים
+│   ├── test_cli.py                      # הרצת ההדגמה עם פלט מופנה וקידוד Windows ישן
 │   └── test_reports.py                  # רביעייה (6.4): הדוח המשולב ונכונות המדדים החדשים
 ├── data/                  # נתוני הדגמה סינתטיים (JSONL)
 ├── main.py                # הדגמת שלב 1 + שלב 2
@@ -409,7 +427,7 @@ pypharm/
 
 ### הוכחות שהמערכת עובדת
 
-**בדיקות:** `python -m pytest` → **156 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
+**בדיקות:** `python -m pytest` → **157 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
 
 | קובץ | מקרים |
 | :--- | :--- |
@@ -423,6 +441,7 @@ pypharm/
 | `test_async_processing.py` | 8 |
 | `test_threaded_processing.py` | 28 |
 | `test_integration.py` | 4 |
+| `test_cli.py` | 1 |
 | `test_reports.py` | 20 |
 
 **הרצה מול השירות האמיתי** (`WEATHER_MODE=live python main.py`, 30.10.2026):
