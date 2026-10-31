@@ -20,6 +20,9 @@ def test_demo_redirected_output_uses_utf8_with_legacy_windows_encoding(tmp_path)
         cwd=tmp_path,
         env=env,
         capture_output=True,
+        # The demo reads no input; without this the child inherits pytest's stdin,
+        # which is invalid when tests run from an IDE or CI (WinError 6 on Windows).
+        stdin=subprocess.DEVNULL,
         timeout=15,
     )
 
