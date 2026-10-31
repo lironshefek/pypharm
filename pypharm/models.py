@@ -463,6 +463,7 @@ class Employee:
             name=data["name"],
             role=data["role"],
             is_active=data.get("is_active", True),
+            on_leave=data.get("on_leave", False),
         )
 
     def __str__(self) -> str:

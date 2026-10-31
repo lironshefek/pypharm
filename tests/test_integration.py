@@ -7,6 +7,7 @@ subsystem) -> OrderActionAuthorizer -> business report. Every test checks the
 result and the state of the components, not only that nothing crashed.
 """
 
+import json
 from unittest import mock
 
 import pytest
@@ -24,6 +25,7 @@ from pypharm import (
 )
 from pypharm.api_client import MockWeatherClient
 from pypharm.exceptions import WeatherCommunicationError
+from pypharm.repository import load_sample_data_from_jsonl
 from pypharm.reports import generate_business_report
 
 HAIFA = Location("STORE-HAIFA", "Grand Canyon Branch", "STORE", "Haifa", 32.8193, 34.9927)
@@ -115,3 +117,37 @@ def test_order_to_unknown_destination_rejects_the_whole_batch(employees):
     assert len(queue) == 0
     assert client.get_weather.call_count == 0
     assert valid.status == "PENDING" and broken.status == "PENDING"
+
+
+def test_manager_loaded_on_leave_cannot_approve_and_is_not_counted_as_available(tmp_path):
+    data_file = tmp_path / "employees.jsonl"
+    data_file.write_text(json.dumps({
+        "entity_type": "employee",
+        "employee_id": "EMP-101",
+        "name": "Aya",
+        "role": "LOGISTICS_MANAGER",
+        "is_active": True,
+        "on_leave": True,
+    }) + "\n", encoding="utf-8")
+    manager = load_sample_data_from_jsonl(str(data_file))[0]
+    employees = {manager.employee_id: manager}
+    order = make_order("ORD-LEAVE", "STORE-HAIFA")
+    service = WeatherService(client=MockWeatherClient({(HAIFA.latitude, HAIFA.longitude): 35.0}), observers=[])
+    authorizer = OrderActionAuthorizer()
+    queue = ApprovalQueue(authorizer)
+
+    queue_orders_for_approval(queue, [order], LOCATIONS, service, employees)
+    run_approvers(queue, [manager])
+
+    assert manager.is_active is True
+    assert manager.on_leave is True
+    assert manager.is_available is False
+    assert order.status == "PENDING"
+    assert order.handled_by_employee_id == "EMP-101"
+    assert queue.approved_count == 0
+    assert queue.refusals["NOT_AUTHORIZED"] == 1
+    assert authorizer.action_history == []
+    weather = generate_business_report(OrderBatch([order]), queue, employees)["weather_approval"]
+    assert weather["available_logistics_managers"] == 0
+    assert weather["senior_approval_backlog"] == 1
+    assert weather["backlog_per_logistics_manager"] is None

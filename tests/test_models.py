@@ -214,3 +214,40 @@ def test_employee_on_leave_cannot_update_status(pending_order):
 
     assert pending_order.status == "PENDING"
     assert authorizer.action_history == []
+
+
+def test_employee_from_dict_preserves_leave_and_availability():
+    employee = Employee.from_dict({
+        "employee_id": "EMP-101", "name": "Aya", "role": "LOGISTICS_MANAGER",
+        "is_active": True, "on_leave": True,
+    })
+
+    assert employee.on_leave is True
+    assert employee.is_active is True
+    assert employee.is_available is False
+
+
+def test_employee_from_dict_without_leave_keeps_existing_records_available():
+    employee = Employee.from_dict({
+        "employee_id": "EMP-101", "name": "Aya", "role": "LOGISTICS_MANAGER",
+    })
+
+    assert employee.on_leave is False
+    assert employee.is_available is True
+
+
+@pytest.mark.parametrize("on_leave", ["true", 1, None])
+def test_employee_from_dict_rejects_non_boolean_leave(on_leave):
+    with pytest.raises(ValueError, match="on_leave must be a boolean"):
+        Employee.from_dict({
+            "employee_id": "EMP-101", "name": "Aya", "role": "LOGISTICS_MANAGER",
+            "on_leave": on_leave,
+        })
+
+
+def test_employee_from_dict_rejects_inactive_employee_on_leave():
+    with pytest.raises(ValueError, match="inactive employee cannot be on leave"):
+        Employee.from_dict({
+            "employee_id": "EMP-101", "name": "Aya", "role": "LOGISTICS_MANAGER",
+            "is_active": False, "on_leave": True,
+        })

@@ -409,12 +409,12 @@ pypharm/
 
 ### הוכחות שהמערכת עובדת
 
-**בדיקות:** `python -m pytest` → **149 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
+**בדיקות:** `python -m pytest` → **156 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
 
 | קובץ | מקרים |
 | :--- | :--- |
 | `test_api_client.py` | 18 |
-| `test_models.py` | 29 |
+| `test_models.py` | 35 |
 | `test_processing.py` | 13 |
 | `test_services.py` | 12 |
 | `test_weather_reading_builder.py` | 8 |
@@ -422,7 +422,7 @@ pypharm/
 | `test_factories.py` | 4 |
 | `test_async_processing.py` | 8 |
 | `test_threaded_processing.py` | 28 |
-| `test_integration.py` | 3 |
+| `test_integration.py` | 4 |
 | `test_reports.py` | 20 |
 
 **הרצה מול השירות האמיתי** (`WEATHER_MODE=live python main.py`, 30.10.2026):
