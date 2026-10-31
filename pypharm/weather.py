@@ -4,13 +4,15 @@ Represents a weather reading with validation.
 """
 
 from dataclasses import dataclass
+from math import isfinite
 
 
 @dataclass(frozen=True, repr=False)
 class WeatherReading:
     """
     Immutable weather reading from API.
-    Validates temperature is a number. Fields cannot be changed after creation.
+    Validates temperature is a number and numeric fields are finite.
+    Fields cannot be changed after creation.
 
     Args:
         temperature_2m: Temperature in Celsius (must be number)
@@ -18,7 +20,7 @@ class WeatherReading:
         weather_code: Optional WMO weather code
 
     Raises:
-        ValueError: If temperature is not a number
+        ValueError: If temperature is not a number or a numeric field is not finite
     """
 
     temperature_2m: float
@@ -32,12 +34,19 @@ class WeatherReading:
                 f"temperature_2m must be a number, got {type(self.temperature_2m).__name__}"
             )
 
-        # Normalize types; object.__setattr__ is needed because the dataclass is frozen
-        object.__setattr__(self, "temperature_2m", float(self.temperature_2m))
-        if self.rain is not None:
-            object.__setattr__(self, "rain", float(self.rain))
-        if self.weather_code is not None:
-            object.__setattr__(self, "weather_code", int(self.weather_code))
+        # Normalize and validate before storing values on the frozen dataclass.
+        for field, convert in (("temperature_2m", float), ("rain", float), ("weather_code", int)):
+            value = getattr(self, field)
+            if value is None:
+                continue
+            try:
+                normalized = convert(value)
+                finite = isfinite(normalized)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{field} must be a finite number") from exc
+            if not finite:
+                raise ValueError(f"{field} must be a finite number")
+            object.__setattr__(self, field, normalized)
 
     def __repr__(self) -> str:
         return f"WeatherReading(temp={self.temperature_2m}°C, rain={self.rain}mm)"

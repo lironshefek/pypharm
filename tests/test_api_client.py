@@ -185,6 +185,69 @@ class TestRetryLogic:
         assert len(attempts) == 1  # Only 1 attempt, no retry
 
 
+    @pytest.mark.parametrize("attempts", [4, 0, -1, 1.5, "2", None, True, False])
+    def test_invalid_retry_attempts_are_rejected_before_http(self, attempts):
+        config = WeatherConfig()
+        config.RETRY_ATTEMPTS = attempts
+
+        with mock.patch("requests.get") as request, mock.patch("pypharm.api_client.time.sleep") as sleep:
+            with pytest.raises(ValueError, match="RETRY_ATTEMPTS.*integer.*1.*3"):
+                get_weather_with_retry(32.0853, 34.7818, config)
+
+        request.assert_not_called()
+        sleep.assert_not_called()
+
+    @pytest.mark.parametrize("attempts", [1, 2, 3])
+    def test_configured_retry_limit_stops_after_the_allowed_total(self, attempts):
+        config = WeatherConfig()
+        config.RETRY_ATTEMPTS = attempts
+
+        with mock.patch("requests.get", side_effect=requests.Timeout()) as request, mock.patch("pypharm.api_client.time.sleep") as sleep:
+            with pytest.raises(WeatherCommunicationError):
+                get_weather_with_retry(32.0853, 34.7818, config)
+
+        assert request.call_count == attempts
+        assert sleep.call_count == attempts - 1
+
+    @pytest.mark.parametrize("attempts", [1, 2, 3])
+    def test_success_on_the_last_configured_attempt(self, attempts):
+        config = WeatherConfig()
+        config.RETRY_ATTEMPTS = attempts
+        response = mock.Mock()
+        response.json.return_value = {"current": {"temperature_2m": 20.0}}
+        responses = [requests.Timeout() for _ in range(attempts - 1)] + [response]
+
+        with mock.patch("requests.get", side_effect=responses) as request, mock.patch("pypharm.api_client.time.sleep") as sleep:
+            weather = get_weather_with_retry(32.0853, 34.7818, config)
+
+        assert weather.temperature_2m == 20.0
+        assert request.call_count == attempts
+        assert sleep.call_count == attempts - 1
+
+    @pytest.mark.parametrize("attempts", ["4", "abc"])
+    def test_invalid_retry_environment_setting_has_a_clear_error(self, monkeypatch, attempts):
+        import runpy
+        import pypharm.config as config_module
+
+        monkeypatch.setenv("WEATHER_RETRY_ATTEMPTS", attempts)
+        with pytest.raises(ValueError, match="WEATHER_RETRY_ATTEMPTS.*integer.*1.*3"):
+            runpy.run_path(config_module.__file__)
+
+    def test_retry_limit_loaded_from_environment_is_used(self, monkeypatch):
+        import runpy
+        import pypharm.config as config_module
+
+        monkeypatch.setenv("WEATHER_RETRY_ATTEMPTS", "2")
+        config = runpy.run_path(config_module.__file__)["WeatherConfig"]()
+
+        with mock.patch("requests.get", side_effect=requests.Timeout()) as request, mock.patch("pypharm.api_client.time.sleep") as sleep:
+            with pytest.raises(WeatherCommunicationError):
+                get_weather_with_retry(32.0853, 34.7818, config)
+
+        assert request.call_count == 2
+        sleep.assert_called_once_with(config.RETRY_DELAY)
+
+
 class TestWeatherReading:
     """Test WeatherReading object and validation."""
 

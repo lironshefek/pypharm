@@ -7,7 +7,7 @@ import logging
 import requests
 import time
 
-from .config import WeatherConfig
+from .config import WeatherConfig, validate_retry_attempts
 from .exceptions import (
     WeatherCommunicationError,
     WeatherHTTPError,
@@ -91,7 +91,7 @@ class WeatherAPIClient:
             weather = WeatherReading.from_api_response(current_data)
             logger.info(f"✅ Weather: {weather.temperature_2m}°C")
             return weather
-        except (KeyError, ValueError, TypeError) as e:
+        except (KeyError, ValueError, TypeError, OverflowError) as e:
             logger.error(f"Data validation failed: {e}")
             raise WeatherDataError(str(e)) from e
 
@@ -151,28 +151,30 @@ def get_weather_with_retry(
         WeatherReading object
 
     Raises:
+        ValueError: If RETRY_ATTEMPTS is not an integer between 1 and 3
         WeatherCommunicationError: If all retries fail (network issues only)
         WeatherHTTPError: On HTTP error (no retry)
         WeatherJSONError: On JSON error (no retry)
         WeatherDataError: On data error (no retry)
     """
     config = config or WeatherConfig()
+    attempts = validate_retry_attempts(config.RETRY_ATTEMPTS)
     client = client or WeatherAPIClient(config)
 
-    for attempt in range(1, config.RETRY_ATTEMPTS + 1):
+    for attempt in range(1, attempts + 1):
         try:
             return client.get_weather(latitude, longitude)
 
         except WeatherCommunicationError as e:
             # Transient error - retry
-            if attempt < config.RETRY_ATTEMPTS:
+            if attempt < attempts:
                 logger.warning(
                     f"Attempt {attempt} failed (communication), "
                     f"retrying in {config.RETRY_DELAY}s..."
                 )
                 time.sleep(config.RETRY_DELAY)
             else:
-                logger.error(f"All {config.RETRY_ATTEMPTS} attempts failed")
+                logger.error(f"All {attempts} attempts failed")
                 raise e
 
         except (WeatherHTTPError, WeatherJSONError, WeatherDataError) as e:

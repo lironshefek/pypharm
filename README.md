@@ -140,6 +140,7 @@ pypharm/  (repository root)
 │   ├── test_factories.py              # Factory וטעינה מקובץ
 │   ├── test_weather_observers.py      # הודעות לשני מגיבים ויושרת עובדים
 │   ├── test_weather_reading_builder.py # היכולת שפותחה ב-TDD
+│   ├── test_weather_validation.py      # נתונים לא סופיים, שגיאות API וחסימת אישור
 │   ├── test_async_processing.py       # חפיפה, תוצאות זהות ושמירת סדר
 │   ├── test_threaded_processing.py    # נעילות, אישור יחיד ובדיקה חוזרת
 │   ├── test_integration.py            # תהליך משולב, כשל, קשרים וחופשה מקובץ
@@ -373,8 +374,10 @@ python -m pip install -e ".[dev]"
 | `WEATHER_MODE` | `default` | `default` = נתונים מדומים ללא רשת · `live` = שירות אמיתי |
 | `WEATHER_API_URL` | `https://api.open-meteo.com/v1/forecast` | כתובת השירות |
 | `WEATHER_TIMEOUT` | `5` | timeout לבקשה (שניות) |
-| `WEATHER_RETRY_ATTEMPTS` | `3` | מספר ניסיונות כולל |
+| `WEATHER_RETRY_ATTEMPTS` | `3` | מספר ניסיונות כולל, בטווח 1–3 |
 | `WEATHER_RETRY_DELAY` | `1` | המתנה בין ניסיונות (שניות) |
+
+ערך לא תקין של `WEATHER_RETRY_ATTEMPTS` נדחה ב־`ValueError` ברור לפני פנייה לשירות.
 
 **הרצה ללא רשת (ברירת מחדל):**
 ```bash
@@ -428,7 +431,7 @@ python -m pytest -v
 
 * **השירות החיצוני:** [Open-Meteo Forecast API](https://open-meteo.com/en/docs) – חינמי וללא מפתח. בקשת GET עם `latitude`, `longitude`, `current=temperature_2m,rain,weather_code` ו־`timeout`.
 * **הפרדה בין תקשורת להחלטה:** `api_client.py` אחראי רק על הבקשה, `raise_for_status()`, פענוח JSON, בדיקת שדות והמרה ל־`WeatherReading`; `services.py` מחליט מה המשמעות העסקית.
-* **טיפול בכשל:** ארבעה סוגי חריגות נפרדים – `WeatherCommunicationError`, `WeatherHTTPError`, `WeatherJSONError` ו־`WeatherDataError`. גם `TypeError` שנגרם ממבנה API שגוי (למשל `{"current": null}`) מומר ל־`WeatherDataError`. **Retry** רק על Timeout / ConnectionError – 3 ניסיונות בסך הכול כברירת מחדל, לפי `WEATHER_RETRY_ATTEMPTS`, עם המתנה ביניהם ולוג ברור אחרי הכישלון האחרון. שגיאת HTTP (כולל 401/403), JSON פגום, מבנה שגוי ונתונים חסרים אינם מנוסים שוב. כל כשל שירות גורם להזמנה להישאר `PENDING` עם רמת סיכון `UNKNOWN` וללא תפקידים מאשרים.
+* **טיפול בכשל:** ארבעה סוגי חריגות נפרדים – `WeatherCommunicationError`, `WeatherHTTPError`, `WeatherJSONError` ו־`WeatherDataError`. מבנה API שגוי (למשל `{"current": null}`), מספרים לא סופיים (`NaN` ו־`Infinity`) ושגיאות המרה מסוג `OverflowError` מטופלים כ־`WeatherDataError`. **Retry** רק על Timeout / ConnectionError – עד 3 ניסיונות בסך הכול, עם ברירת מחדל 3 והגדרה בטווח 1–3 באמצעות `WEATHER_RETRY_ATTEMPTS`, המתנה בין ניסיונות ולוג אחרי הכישלון האחרון. שגיאת HTTP (כולל 401/403), JSON פגום ונתונים לא תקינים אינם מנוסים שוב. כל כשל שירות גורם להזמנה להישאר `PENDING` עם רמת סיכון `UNKNOWN` וללא תפקידים מאשרים.
 * **Factory (`ProductFactory`):** טעינת הקטלוג יוצרת סוג מוצר לפי `entity_type`. ה־Factory מרכזת את בחירת מחלקת המוצר ואת יצירתה; `repository.py` קורא ומאמת רשומות ומפנה רשומות מוצרים אליה.
 * **Observer (`ApprovalEventPublisher`):** אירוע `DANGER` מפורסם דרך Publisher לשני מגיבי ברירת מחדל – רישום ביקורת ובדיקת תקינות העובד. `WeatherService` יוצר את מגיבי ברירת המחדל, וניתן להזריק או להוסיף מגיבים בלי לשנות את לוגיקת הסיווג. המגיבים מתעדים ומתריעים; הם אינם מאשרים או משנים סטטוס. **זו התבנית שמשרתת את השילוב עם תת־המערכת.**
 * **העברת תלויות מבחוץ:** `WeatherService(config, client, observers)` מקבל את ה־client ואת המגיבים בבנאי, ו־`load_sample_data_from_jsonl` מקבל `product_factory`. כך בבדיקות מעבירים client מדומה או Mock observers בלי רשת, ובהרצה בוחרים בין שירות אמיתי למדומה בלי לשנות את הלוגיקה.
@@ -441,15 +444,16 @@ python -m pytest -v
 
 ### הוכחות שהמערכת עובדת
 
-**בדיקות:** `python -m pytest` → **157 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
+**בדיקות:** `python -m pytest` → **190 passed**, ללא רשת וללא המתנות אמיתיות של Retry.
 
 | קובץ | מקרים |
 | :--- | :--- |
-| `test_api_client.py` | 18 |
+| `test_api_client.py` | 35 |
 | `test_models.py` | 35 |
 | `test_processing.py` | 13 |
 | `test_services.py` | 12 |
 | `test_weather_reading_builder.py` | 8 |
+| `test_weather_validation.py` | 16 |
 | `test_weather_observers.py` | 6 |
 | `test_factories.py` | 4 |
 | `test_async_processing.py` | 8 |
